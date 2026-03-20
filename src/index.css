@@ -1,0 +1,18 @@
+@import "tailwindcss";
+
+@theme {
+  --font-comic: "Comic Sans MS", "Comic Sans", cursive;
+}
+
+body {
+  font-family: var(--font-comic);
+  background-color: #f8fafc;
+}
+
+.shadow-soft {
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+}
+
+.border-soft {
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}

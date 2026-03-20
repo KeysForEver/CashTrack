@@ -30,6 +30,25 @@ export interface Salario {
   recebedor_nome?: string;
 }
 
+export interface Movement {
+  id: string;
+  data: string;
+  dateObj: Date;
+  isValidDate: boolean;
+  formattedDate: string;
+  month: number;
+  monthName: string;
+  monthNameShort: string;
+  year: string;
+  descricao: string;
+  categoria: string;
+  valor: number;
+  tipo: 'Entrada' | 'Saída';
+  pessoa: string;
+  destino: string;
+  raw: any;
+}
+
 export const PALETTES = [
   {
     name: "Sunny Beach Day",

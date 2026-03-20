@@ -1,14 +1,16 @@
 import React, { useEffect } from 'react';
 import { X } from 'lucide-react';
+import { cn } from '../utils/cn';
 
 interface ModalProps {
   isOpen: boolean;
   onClose: () => void;
   title: string;
   children: React.ReactNode;
+  className?: string;
 }
 
-export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children }) => {
+export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, className }) => {
   useEffect(() => {
     const handleEsc = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -31,7 +33,10 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children }
       onClick={onClose}
     >
       <div 
-        className="relative flex flex-col w-full h-full sm:w-2/3 sm:h-2/3 rounded-3xl bg-white shadow-2xl border border-gray-100 overflow-hidden"
+        className={cn(
+          "relative flex flex-col w-full h-full sm:w-2/3 sm:h-2/3 rounded-3xl bg-white shadow-2xl border border-gray-100 overflow-hidden",
+          className
+        )}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

@@ -43,7 +43,7 @@ const renderActiveShape = (props: any) => {
   const label = `${payload.name} (${formatCurrency(value)}) - ${(percent * 100).toFixed(0)}%`;
   // Dynamic font size calculation based on string length to prevent overflow
   // Base size 14, minimum 11
-  const dynamicFontSize = Math.max(11, Math.min(14, 14 * (24 / Math.max(24, label.length))));
+  const dynamicFontSize = Math.max(12, Math.min(16, 16 * (24 / Math.max(24, label.length))));
 
   return (
     <g>
@@ -1331,10 +1331,10 @@ CSV com colunas:
                           align="right" 
                           layout="vertical" 
                           wrapperStyle={{ 
-                            fontSize: '13px', 
+                            fontSize: '15px', 
                             fontWeight: '600', 
                             paddingLeft: '20px',
-                            width: '120px'
+                            width: '140px'
                           }} 
                         />
                         {pessoas.map(p => (

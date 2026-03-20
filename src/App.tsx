@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Filter, Users, DollarSign, CreditCard, Tag, TrendingUp, ChevronDown, ClipboardCheck, Trash2, Download, Upload, RotateCcw, Layers, Loader2 } from 'lucide-react';
+import { Plus, Filter, Users, DollarSign, CreditCard, Tag, TrendingUp, ChevronDown, ClipboardCheck, Trash2, Download, Upload, RotateCcw, Layers, Loader2, PieChart as PieChartIcon, BarChart as BarChartIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
@@ -113,6 +113,7 @@ export default function App() {
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
   const [activePieIndex, setActivePieIndex] = useState(0);
+  const [activeChart, setActiveChart] = useState<'bar' | 'pie'>('bar');
 
   const [isLogModalOpen, setIsLogModalOpen] = useState(false);
   const [isLogExportModalOpen, setIsLogExportModalOpen] = useState(false);
@@ -563,6 +564,8 @@ CSV com colunas:
         isValidDate,
         formattedDate: isValidDate ? format(dateObj, 'dd/MM/yyyy') : d.data,
         month: isValidDate ? getMonth(dateObj) + 1 : 0,
+        monthName: isValidDate ? format(dateObj, 'MMMM', { locale: ptBR }) : '',
+        monthNameShort: isValidDate ? format(dateObj, 'MMM', { locale: ptBR }) : '',
         year: isValidDate ? getYear(dateObj).toString() : '',
         descricao: d.descricao || 'Despesa',
         categoria: d.categoria_nome || '-',
@@ -585,6 +588,8 @@ CSV com colunas:
         isValidDate,
         formattedDate: isValidDate ? format(dateObj, 'dd/MM/yyyy') : s.data,
         month: isValidDate ? getMonth(dateObj) + 1 : 0,
+        monthName: isValidDate ? format(dateObj, 'MMMM', { locale: ptBR }) : '',
+        monthNameShort: isValidDate ? format(dateObj, 'MMM', { locale: ptBR }) : '',
         year: isValidDate ? getYear(dateObj).toString() : '',
         descricao: s.descricao || 'Salário',
         categoria: 'Salário',
@@ -603,10 +608,10 @@ CSV com colunas:
     if (!logSearchTerm) return allMovements;
     
     const normalize = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-    const term = normalize(logSearchTerm);
+    const term = normalize(logSearchTerm).trim();
     
     // Check for MM/YYYY pattern (e.g. 11/2025 or 11/25)
-    const monthYearRegex = /^(\d{1,2})\/(\d{2,4})$/;
+    const monthYearRegex = /^(\d{1,2})\s*[\/\-]\s*(\d{2,4})$/;
     const myMatch = term.match(monthYearRegex);
     
     return allMovements.filter(m => {
@@ -626,6 +631,8 @@ CSV com colunas:
       return (
         m.data.includes(term) ||
         m.formattedDate.includes(term) ||
+        normalize(m.monthName).includes(term) ||
+        normalize(m.monthNameShort).includes(term) ||
         normalize(m.descricao).includes(term) ||
         normalize(m.categoria).includes(term) ||
         m.valor.toString().includes(term) ||
@@ -1157,7 +1164,7 @@ CSV com colunas:
 
       {/* Yellow Balance Card */}
       {hasRecords && (
-        <div className="mb-6 w-full lg:w-2/3 mx-auto rounded-2xl bg-yellow-100 p-4 shadow-soft border-2 border-yellow-200 shrink-0">
+        <div className="mb-6 w-full lg:w-1/3 mx-auto rounded-2xl bg-yellow-100 p-4 shadow-soft border-2 border-yellow-200 shrink-0">
           <div className="mb-2 flex items-center gap-2 text-yellow-800">
             <TrendingUp size={20} />
             <h2 className="text-lg font-bold">Ajustes de Saldo</h2>
@@ -1209,55 +1216,113 @@ CSV com colunas:
       </div>
 
       {hasRecords && (
-        <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2 flex-1 min-h-0">
-          {/* Bar Chart */}
-          <div className="rounded-2xl bg-white p-4 shadow-soft border-soft flex flex-col min-h-0">
-            <div className="flex-1 w-full min-h-0">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={barChartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="day" tick={{ fontSize: 10 }} />
-                  <YAxis tickFormatter={(val) => formatCurrency(val).replace('R$', '').trim()} tick={{ fontSize: 10 }} />
-                  <Tooltip 
-                    formatter={(value: number) => [formatCurrency(value), 'Valor']}
-                    contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                    cursor={{ fill: '#f3f4f6' }}
-                  />
-                  <Legend verticalAlign="top" height={36} wrapperStyle={{ fontSize: '11px', fontWeight: '500' }} />
-                  {pessoas.map(p => (
-                    <Bar key={p.id} dataKey={p.nome} stackId="a" fill={p.cor} radius={[0, 0, 0, 0]} />
-                  ))}
-                  <Bar dataKey="Dividir" stackId="a" fill="#ef4444" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+        <div className="mt-6 flex flex-col flex-1 min-h-0">
+          <div className="flex items-center justify-between mb-4 shrink-0">
+            <h2 className="text-lg font-bold text-gray-800">
+              {activeChart === 'bar' ? 'Gastos por Dia' : 'Gastos por Categoria'}
+            </h2>
+            <div className="flex items-center gap-1 bg-white p-1 rounded-xl shadow-soft border-soft">
+              <button
+                onClick={() => setActiveChart('bar')}
+                className={cn(
+                  "p-2 rounded-lg transition-all",
+                  activeChart === 'bar' ? "bg-indigo-600 text-white shadow-md" : "text-gray-400 hover:text-gray-600 hover:bg-gray-50"
+                )}
+                title="Gráfico de Barras"
+              >
+                <BarChartIcon size={18} />
+              </button>
+              <button
+                onClick={() => setActiveChart('pie')}
+                className={cn(
+                  "p-2 rounded-lg transition-all",
+                  activeChart === 'pie' ? "bg-indigo-600 text-white shadow-md" : "text-gray-400 hover:text-gray-600 hover:bg-gray-50"
+                )}
+                title="Gráfico de Pizza"
+              >
+                <PieChartIcon size={18} />
+              </button>
             </div>
           </div>
 
-          {/* Pie Chart */}
-          <div className="rounded-2xl bg-white p-4 shadow-soft border-soft flex flex-col min-h-0">
-            <div className="flex-1 w-full min-h-0">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    activeIndex={activePieIndex}
-                    activeShape={renderActiveShape}
-                    data={pieChartData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius="40%"
-                    outerRadius="65%"
-                    fill="#8884d8"
-                    dataKey="value"
-                    onMouseEnter={(_, index) => setActivePieIndex(index)}
-                  >
-                    {pieChartData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={PALETTES[0].colors[index % PALETTES[0].colors.length]} stroke="#fff" strokeWidth={2} />
-                    ))}
-                  </Pie>
-                  <Legend verticalAlign="bottom" height={36} wrapperStyle={{ fontSize: '11px', fontWeight: '500' }} />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
+          <div className="flex-1 min-h-0 relative">
+            <AnimatePresence mode="wait">
+              {activeChart === 'bar' ? (
+                <motion.div
+                  key="bar"
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 20 }}
+                  transition={{ duration: 0.2 }}
+                  className="absolute inset-0 rounded-2xl bg-white p-4 shadow-soft border-soft flex flex-col"
+                >
+                  <div className="flex-1 w-full min-h-0">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={barChartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                        <XAxis dataKey="day" tick={{ fontSize: 10 }} />
+                        <YAxis tickFormatter={(val) => formatCurrency(val).replace('R$', '').trim()} tick={{ fontSize: 10 }} />
+                        <Tooltip 
+                          formatter={(value: number) => [formatCurrency(value), 'Valor']}
+                          contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                          cursor={{ fill: '#f3f4f6' }}
+                        />
+                        <Legend verticalAlign="top" height={36} wrapperStyle={{ fontSize: '11px', fontWeight: '500', paddingTop: '10px' }} />
+                        {pessoas.map(p => (
+                          <Bar key={p.id} dataKey={p.nome} stackId="a" fill={p.cor} radius={[0, 0, 0, 0]} />
+                        ))}
+                        <Bar dataKey="Dividir" stackId="a" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="pie"
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  transition={{ duration: 0.2 }}
+                  className="absolute inset-0 rounded-2xl bg-white p-4 shadow-soft border-soft flex flex-col"
+                >
+                  <div className="flex-1 w-full min-h-0">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          activeIndex={activePieIndex}
+                          activeShape={renderActiveShape}
+                          data={pieChartData}
+                          cx="50%"
+                          cy="45%"
+                          innerRadius="40%"
+                          outerRadius="65%"
+                          fill="#8884d8"
+                          dataKey="value"
+                          onMouseEnter={(_, index) => setActivePieIndex(index)}
+                        >
+                          {pieChartData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={PALETTES[0].colors[index % PALETTES[0].colors.length]} stroke="#fff" strokeWidth={2} />
+                          ))}
+                        </Pie>
+                        <Legend 
+                          verticalAlign="bottom" 
+                          height={60} 
+                          layout="horizontal"
+                          align="center"
+                          wrapperStyle={{ 
+                            fontSize: '11px', 
+                            fontWeight: '500', 
+                            paddingTop: '20px',
+                            overflowY: 'auto',
+                            maxHeight: '80px'
+                          }} 
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         </div>
       )}
@@ -1599,16 +1664,30 @@ CSV com colunas:
               </button>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="rounded-xl bg-emerald-50 p-4 border border-emerald-100">
+              <div className="rounded-xl bg-emerald-50 p-4 border border-emerald-100 flex flex-col">
                 <p className="text-xs font-semibold text-emerald-600 uppercase tracking-wider mb-1">Entradas</p>
-                <p className="text-xl font-bold text-emerald-700">{formatCurrency(selectedPersonDetails.totalSalary)}</p>
+                <p className="text-xl font-bold text-emerald-700 mt-auto">{formatCurrency(selectedPersonDetails.totalSalary)}</p>
               </div>
-              <div className="rounded-xl bg-rose-50 p-4 border border-rose-100">
+              <div className="rounded-xl bg-rose-50 p-4 border border-rose-100 flex flex-col">
                 <p className="text-xs font-semibold text-rose-600 uppercase tracking-wider mb-1">Saídas (Total)</p>
-                <p className="text-xl font-bold text-rose-700">{formatCurrency(selectedPersonDetails.totalSpent)}</p>
+                <div className="flex items-center mt-auto">
+                  <div className="flex-1 text-center">
+                    <p className="text-xl font-bold text-rose-700">{formatCurrency(selectedPersonDetails.totalSpent)}</p>
+                  </div>
+                  <div className="flex flex-col justify-center border-l border-rose-200 pl-3 ml-2 shrink-0 text-right">
+                    <div className="mb-1">
+                      <p className="text-[9px] font-bold text-rose-400 uppercase leading-none">Próprias</p>
+                      <p className="text-[11px] font-bold text-rose-600">{formatCurrency(selectedPersonDetails.exclusiveSpent)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] font-bold text-rose-400 uppercase leading-none">Divididas</p>
+                      <p className="text-[11px] font-bold text-rose-600">{formatCurrency(selectedPersonDetails.sharedSpent)}</p>
+                    </div>
+                  </div>
+                </div>
               </div>
               <div className={cn(
-                "rounded-xl p-4 border",
+                "rounded-xl p-4 border flex flex-col",
                 selectedPersonDetails.net >= 0 ? "bg-blue-50 border-blue-100" : "bg-amber-50 border-amber-100"
               )}>
                 <p className={cn(
@@ -1616,20 +1695,9 @@ CSV com colunas:
                   selectedPersonDetails.net >= 0 ? "text-blue-600" : "text-amber-600"
                 )}>Saldo Líquido</p>
                 <p className={cn(
-                  "text-xl font-bold",
+                  "text-xl font-bold mt-auto",
                   selectedPersonDetails.net >= 0 ? "text-blue-700" : "text-amber-700"
                 )}>{formatCurrency(selectedPersonDetails.net)}</p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="rounded-xl bg-rose-50/60 p-4 border border-rose-100">
-                <p className="text-xs font-semibold text-rose-600 uppercase tracking-wider mb-1">Saídas Próprias</p>
-                <p className="text-xl font-bold text-rose-700">{formatCurrency(selectedPersonDetails.exclusiveSpent)}</p>
-              </div>
-              <div className="rounded-xl bg-rose-50/60 p-4 border border-rose-100">
-                <p className="text-xs font-semibold text-rose-600 uppercase tracking-wider mb-1">Saídas Divididas</p>
-                <p className="text-xl font-bold text-rose-700">{formatCurrency(selectedPersonDetails.sharedSpent)}</p>
               </div>
             </div>
 

@@ -260,7 +260,6 @@ CSV com colunas:
   const [importPessoaId, setImportPessoaId] = useState('');
   const [logSearchTerm, setLogSearchTerm] = useState('');
   const [logSort, setLogSort] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
-  const [logFilters, setLogFilters] = useState<Record<string, string[]>>({});
   const [reviewSearchTerm, setReviewSearchTerm] = useState('');
 
   const fetchData = async () => {
@@ -643,18 +642,7 @@ CSV com colunas:
       });
     }
 
-    // 2. Column Filters
-    Object.entries(logFilters).forEach(([key, values]) => {
-      const filterValues = values as string[];
-      if (filterValues.length > 0) {
-        result = result.filter(m => {
-          const val = String((m as any)[key]);
-          return filterValues.includes(val);
-        });
-      }
-    });
-
-    // 3. Sorting
+    // 2. Sorting
     if (logSort) {
       result.sort((a, b) => {
         const valA = (a as any)[logSort.key];
@@ -675,157 +663,41 @@ CSV com colunas:
     }
 
     return result;
-  }, [allMovements, logSearchTerm, logSort, logFilters]);
+  }, [allMovements, logSearchTerm, logSort]);
 
-  const getUniqueValues = (key: string) => {
-    let result = [...allMovements];
-
-    // Apply search
-    if (logSearchTerm) {
-      const normalize = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-      const term = normalize(logSearchTerm).trim();
-      const monthYearRegex = /^(\d{1,2})\s*[\/\-]\s*(\d{2,4})$/;
-      const myMatch = term.match(monthYearRegex);
-      
-      result = result.filter(m => {
-        if (myMatch && m.isValidDate) {
-          const searchMonth = parseInt(myMatch[1]);
-          const searchYear = myMatch[2];
-          if (m.month === searchMonth && (searchYear.length === 2 ? m.year.endsWith(searchYear) : m.year === searchYear)) return true;
+  const LogTableHeader = ({ label, columnKey }: { label: string, columnKey: string }) => {
+    const isSorted = logSort?.key === columnKey;
+    
+    const handleSort = () => {
+      setLogSort(prev => {
+        if (prev?.key === columnKey) {
+          return { key: columnKey, direction: prev.direction === 'asc' ? 'desc' : 'asc' };
         }
-        return (
-          m.data.includes(term) ||
-          m.formattedDate.includes(term) ||
-          normalize(m.monthName).includes(term) ||
-          normalize(m.monthNameShort).includes(term) ||
-          normalize(m.descricao).includes(term) ||
-          normalize(m.categoria).includes(term) ||
-          m.valor.toString().includes(term) ||
-          normalize(m.tipo).includes(term) ||
-          normalize(m.pessoa).includes(term) ||
-          normalize(m.destino).includes(term)
-        );
-      });
-    }
-
-    // Apply other column filters
-    Object.entries(logFilters).forEach(([fKey, values]) => {
-      const filterValues = values as string[];
-      if (fKey !== key && filterValues.length > 0) {
-        result = result.filter(m => filterValues.includes(String((m as any)[fKey])));
-      }
-    });
-
-    const values = result.map(m => String((m as any)[key]));
-    return Array.from(new Set(values)).sort();
-  };
-
-  const LogTableHeader = ({ label, columnKey, isLast }: { label: string, columnKey: string, isLast?: boolean }) => {
-    const [isOpen, setIsOpen] = useState(false);
-    const uniqueValues = useMemo(() => getUniqueValues(columnKey), [columnKey, allMovements]);
-    const activeFilters = logFilters[columnKey] || [];
-
-    const toggleSort = (direction: 'asc' | 'desc') => {
-      setLogSort({ key: columnKey, direction });
-      setIsOpen(false);
-    };
-
-    const toggleFilter = (value: string) => {
-      setLogFilters(prev => {
-        const current = prev[columnKey] || [];
-        const next = current.includes(value)
-          ? current.filter(v => v !== value)
-          : [...current, value];
-        return { ...prev, [columnKey]: next };
-      });
-    };
-
-    const clearFilters = () => {
-      setLogFilters(prev => {
-        const next = { ...prev };
-        delete next[columnKey];
-        return next;
+        return { key: columnKey, direction: 'asc' };
       });
     };
 
     return (
-      <th className="px-4 py-3 font-semibold relative group min-w-[120px]">
-        <div 
-          className="flex items-center gap-1 cursor-pointer hover:text-indigo-600 transition-colors"
-          onClick={() => setIsOpen(!isOpen)}
-        >
+      <th 
+        className="px-4 py-3 font-semibold cursor-pointer hover:bg-gray-200 transition-colors select-none group"
+        onClick={handleSort}
+      >
+        <div className="flex items-center gap-2">
           <span className="truncate">{label}</span>
-          <div className="flex flex-col -space-y-1 shrink-0">
-            <ChevronUp size={10} className={cn(logSort?.key === columnKey && logSort?.direction === 'asc' ? "text-indigo-600" : "text-gray-300")} />
-            <ChevronDown size={10} className={cn(logSort?.key === columnKey && logSort?.direction === 'desc' ? "text-indigo-600" : "text-gray-300")} />
+          <div className="flex flex-col shrink-0">
+            {isSorted ? (
+              logSort.direction === 'asc' ? (
+                <ChevronUp size={14} className="text-indigo-600" />
+              ) : (
+                <ChevronDown size={14} className="text-indigo-600" />
+              )
+            ) : (
+              <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                <ChevronUp size={14} className="text-gray-400" />
+              </div>
+            )}
           </div>
-          {activeFilters.length > 0 && (
-            <div className="w-1.5 h-1.5 rounded-full bg-indigo-600 ml-1 shrink-0" />
-          )}
         </div>
-
-        <AnimatePresence>
-          {isOpen && (
-            <>
-              <div 
-                className="fixed inset-0 z-30" 
-                onClick={() => setIsOpen(false)} 
-              />
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 10 }}
-                className={cn(
-                  "absolute top-full z-40 mt-1 w-56 rounded-xl bg-white p-2 shadow-xl border border-gray-100",
-                  isLast ? "right-0" : "left-0"
-                )}
-              >
-                <div className="space-y-1 mb-2 pb-2 border-b border-gray-50">
-                  <button
-                    onClick={() => toggleSort('asc')}
-                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
-                  >
-                    <ArrowUp size={14} /> Ordenar A-Z / Menor
-                  </button>
-                  <button
-                    onClick={() => toggleSort('desc')}
-                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
-                  >
-                    <ArrowDown size={14} /> Ordenar Z-A / Maior
-                  </button>
-                </div>
-
-                <div className="max-h-48 overflow-y-auto custom-scrollbar space-y-0.5">
-                  <div className="px-3 py-1 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Filtros</div>
-                  {uniqueValues.map(val => (
-                    <button
-                      key={val}
-                      onClick={() => toggleFilter(val)}
-                      className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50"
-                    >
-                      <div className={cn(
-                        "flex h-4 w-4 items-center justify-center rounded border transition-colors",
-                        activeFilters.includes(val) ? "bg-indigo-600 border-indigo-600" : "border-gray-300"
-                      )}>
-                        {activeFilters.includes(val) && <Check size={10} className="text-white" />}
-                      </div>
-                      <span className="truncate">{val}</span>
-                    </button>
-                  ))}
-                </div>
-
-                {activeFilters.length > 0 && (
-                  <button
-                    onClick={clearFilters}
-                    className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg border border-rose-100 px-3 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50"
-                  >
-                    <X size={14} /> Limpar Filtros
-                  </button>
-                )}
-              </motion.div>
-            </>
-          )}
-        </AnimatePresence>
       </th>
     );
   };
@@ -1757,15 +1629,14 @@ CSV com colunas:
                 <Download size={18} />
                 Exportar
               </button>
-              {(logSearchTerm || logSort || Object.values(logFilters).some(v => (v as string[]).length > 0)) && (
+              {(logSearchTerm || logSort) && (
                 <button
                   onClick={() => {
                     setLogSearchTerm('');
                     setLogSort(null);
-                    setLogFilters({});
                   }}
                   className="flex items-center gap-2 rounded-xl bg-rose-50 px-4 py-2 text-sm font-bold text-rose-600 hover:bg-rose-100 transition-all active:scale-95 shadow-sm"
-                  title="Limpar todos os filtros"
+                  title="Limpar filtros e ordenação"
                 >
                   <RotateCcw size={18} />
                   Limpar
@@ -1784,7 +1655,7 @@ CSV com colunas:
                   <LogTableHeader label="Valor" columnKey="valor" />
                   <LogTableHeader label="Tipo" columnKey="tipo" />
                   <LogTableHeader label="Pessoa" columnKey="pessoa" />
-                  <LogTableHeader label="Destino" columnKey="destino" isLast />
+                  <LogTableHeader label="Destino" columnKey="destino" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50 bg-white">
@@ -1847,7 +1718,6 @@ CSV com colunas:
                 className="flex items-center gap-2 rounded-xl bg-indigo-50 px-4 py-2 text-sm font-bold text-indigo-600 hover:bg-indigo-100 transition-all active:scale-95 shadow-sm"
               >
                 <Download size={18} />
-                Exportar
               </button>
               <button
                 onClick={() => {

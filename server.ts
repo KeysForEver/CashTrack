@@ -57,7 +57,31 @@ async function startServer() {
     try { database.exec("ALTER TABLE salarios ADD COLUMN descricao TEXT DEFAULT ''"); } catch (e) {}
   };
 
+  // Normalize dates in despesas and salarios to YYYY-MM-DD
+  const normalizeDates = (database: Database.Database) => {
+    const tables = [
+      { name: 'despesas', col: 'data' },
+      { name: 'salarios', col: 'data' }
+    ];
+    
+    for (const table of tables) {
+      const records = database.prepare(`SELECT id, ${table.col} FROM ${table.name}`).all();
+      for (const r of records as any[]) {
+        const val = r[table.col];
+        if (val && val.includes('/')) {
+          const parts = val.split('/');
+          if (parts.length === 3) {
+            const [d, m, y] = parts;
+            const normalized = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+            database.prepare(`UPDATE ${table.name} SET ${table.col} = ? WHERE id = ?`).run(normalized, r.id);
+          }
+        }
+      }
+    }
+  };
+
   initDb(db);
+  normalizeDates(db);
 
   // Backup endpoint
   app.get("/api/backup", (req, res) => {
@@ -103,6 +127,7 @@ async function startServer() {
       // Reopen connection
       db = new Database(DB_PATH);
       initDb(db);
+      normalizeDates(db);
 
       // Clean up upload
       fs.unlinkSync(filePath);

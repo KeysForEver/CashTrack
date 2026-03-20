@@ -3,7 +3,7 @@ import { Plus, Filter, Users, DollarSign, CreditCard, Tag, TrendingUp, ChevronDo
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
-  PieChart, Pie, Cell, Sector
+  PieChart, Pie, Cell, Sector, Legend
 } from 'recharts';
 import { format, parseISO, getMonth, getYear, startOfMonth, endOfMonth, eachDayOfInterval } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -322,6 +322,7 @@ CSV com colunas:
   const filteredDespesas = useMemo(() => {
     return despesas.filter(d => {
       const date = parseISO(d.data);
+      if (isNaN(date.getTime())) return true; // Keep invalid dates to show them
       const m = getMonth(date);
       const y = getYear(date);
       const matchYear = filterYear === -1 || y === filterYear;
@@ -333,6 +334,7 @@ CSV com colunas:
   const filteredSalarios = useMemo(() => {
     return salarios.filter(s => {
       const date = parseISO(s.data);
+      if (isNaN(date.getTime())) return true;
       const m = getMonth(date);
       const y = getYear(date);
       const matchYear = filterYear === -1 || y === filterYear;
@@ -340,6 +342,8 @@ CSV com colunas:
       return matchYear && matchMonth;
     });
   }, [salarios, filterMonth, filterYear]);
+
+  const hasRecords = filteredDespesas.length > 0 || filteredSalarios.length > 0;
 
   const balances = useMemo(() => {
     if (pessoas.length === 0) return [];
@@ -434,8 +438,26 @@ CSV com colunas:
     const pSalarios = filteredSalarios.filter(s => s.recebedor_id === selectedPersonId);
 
     const movements = [
-      ...pDespesas.map(d => ({ ...d, tipo: 'Saída', displayData: d.data })),
-      ...pSalarios.map(s => ({ ...s, tipo: 'Entrada', displayData: s.data }))
+      ...pDespesas.map(d => {
+        const dateObj = parseISO(d.data);
+        const isValidDate = !isNaN(dateObj.getTime());
+        return { 
+          ...d, 
+          tipo: 'Saída', 
+          displayData: d.data,
+          formattedDate: isValidDate ? format(dateObj, 'dd/MM/yyyy') : d.data
+        };
+      }),
+      ...pSalarios.map(s => {
+        const dateObj = parseISO(s.data);
+        const isValidDate = !isNaN(dateObj.getTime());
+        return { 
+          ...s, 
+          tipo: 'Entrada', 
+          displayData: s.data,
+          formattedDate: isValidDate ? format(dateObj, 'dd/MM/yyyy') : s.data
+        };
+      })
     ].sort((a, b) => b.displayData.localeCompare(a.displayData));
 
     const totalSpent = pDespesas.reduce((sum, d) => sum + d.valor, 0);
@@ -531,9 +553,17 @@ CSV com colunas:
         const p = pessoas.find(p => p.id.toString() === d.destino);
         destinoLabel = p ? p.nome : d.destino;
       }
+      const dateObj = parseISO(d.data);
+      const isValidDate = !isNaN(dateObj.getTime());
+      
       return {
         id: `d-${d.id}`,
         data: d.data,
+        dateObj,
+        isValidDate,
+        formattedDate: isValidDate ? format(dateObj, 'dd/MM/yyyy') : d.data,
+        month: isValidDate ? getMonth(dateObj) + 1 : 0,
+        year: isValidDate ? getYear(dateObj).toString() : '',
         descricao: d.descricao || 'Despesa',
         categoria: d.categoria_nome || '-',
         valor: d.valor,
@@ -544,17 +574,27 @@ CSV com colunas:
       };
     });
 
-    const mSalarios = salarios.map(s => ({
-      id: `s-${s.id}`,
-      data: s.data,
-      descricao: s.descricao || 'Salário',
-      categoria: 'Salário',
-      valor: s.valor,
-      tipo: 'Entrada',
-      pessoa: '-',
-      destino: s.recebedor_nome || '-',
-      raw: s
-    }));
+    const mSalarios = salarios.map(s => {
+      const dateObj = parseISO(s.data);
+      const isValidDate = !isNaN(dateObj.getTime());
+      
+      return {
+        id: `s-${s.id}`,
+        data: s.data,
+        dateObj,
+        isValidDate,
+        formattedDate: isValidDate ? format(dateObj, 'dd/MM/yyyy') : s.data,
+        month: isValidDate ? getMonth(dateObj) + 1 : 0,
+        year: isValidDate ? getYear(dateObj).toString() : '',
+        descricao: s.descricao || 'Salário',
+        categoria: 'Salário',
+        valor: s.valor,
+        tipo: 'Entrada',
+        pessoa: '-',
+        destino: s.recebedor_nome || '-',
+        raw: s
+      };
+    });
 
     return [...mDespesas, ...mSalarios].sort((a, b) => b.data.localeCompare(a.data));
   }, [despesas, salarios, pessoas]);
@@ -565,11 +605,27 @@ CSV com colunas:
     const normalize = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
     const term = normalize(logSearchTerm);
     
+    // Check for MM/YYYY pattern (e.g. 11/2025 or 11/25)
+    const monthYearRegex = /^(\d{1,2})\/(\d{2,4})$/;
+    const myMatch = term.match(monthYearRegex);
+    
     return allMovements.filter(m => {
-      const formattedDate = format(parseISO(m.data), 'dd/MM/yyyy');
+      // If it's a month/year search
+      if (myMatch && m.isValidDate) {
+        const searchMonth = parseInt(myMatch[1]);
+        const searchYear = myMatch[2];
+        
+        const monthMatches = m.month === searchMonth;
+        const yearMatches = searchYear.length === 2 
+          ? m.year.endsWith(searchYear) 
+          : m.year === searchYear;
+          
+        if (monthMatches && yearMatches) return true;
+      }
+
       return (
         m.data.includes(term) ||
-        formattedDate.includes(term) ||
+        m.formattedDate.includes(term) ||
         normalize(m.descricao).includes(term) ||
         normalize(m.categoria).includes(term) ||
         m.valor.toString().includes(term) ||
@@ -674,8 +730,10 @@ CSV com colunas:
       });
       if (!res.ok) throw new Error('Falha ao excluir pessoa');
       setIsDeletePessoaModalOpen(false);
+      setIsPersonDetailModalOpen(false);
       setPersonToDelete(null);
-      setToast('Pessoa e transações excluídas com sucesso!');
+      setSelectedPersonId(null);
+      setToast('Pessoa e todos os seus registros foram excluídos permanentemente!');
       setTimeout(() => setToast(null), 3000);
       fetchData();
     } catch (err) {
@@ -934,7 +992,7 @@ CSV com colunas:
   };
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
+    <div className="flex h-screen bg-gray-50 overflow-hidden">
       {/* Loading Overlay */}
       <AnimatePresence>
         {isLoading && (
@@ -959,7 +1017,7 @@ CSV com colunas:
       </AnimatePresence>
 
       {/* Sidebar */}
-      <aside className="w-72 bg-white border-r border-gray-200 fixed h-full overflow-y-auto z-30 shadow-sm">
+      <aside className="w-72 bg-white border-r border-gray-200 fixed h-full overflow-y-auto z-30 shadow-sm custom-scrollbar">
         <div className="p-6">
           <div className="flex items-center gap-3 mb-10">
             <div className="bg-indigo-600 p-2 rounded-xl text-white">
@@ -1040,9 +1098,9 @@ CSV com colunas:
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 ml-72 p-8">
-        <div className="max-w-6xl mx-auto">
-          <header className="mb-8 relative flex items-center justify-center min-h-[48px]">
+      <main className="flex-1 ml-72 p-6 flex flex-col overflow-hidden">
+        <div className="max-w-6xl mx-auto w-full flex flex-col h-full">
+          <header className="mb-6 relative flex items-center justify-center min-h-[48px] shrink-0">
             <div className="flex items-center gap-4 rounded-2xl bg-white p-2 px-4 shadow-soft border-soft">
               <Filter className="text-gray-400" size={18} />
               <select 
@@ -1098,23 +1156,25 @@ CSV com colunas:
           </header>
 
       {/* Yellow Balance Card */}
-      <div className="mb-8 w-full lg:w-2/3 mx-auto rounded-2xl bg-yellow-100 p-6 shadow-soft border-2 border-yellow-200">
-        <div className="mb-4 flex items-center gap-2 text-yellow-800">
-          <TrendingUp size={24} />
-          <h2 className="text-xl font-bold">Ajustes de Saldo</h2>
+      {hasRecords && (
+        <div className="mb-6 w-full lg:w-2/3 mx-auto rounded-2xl bg-yellow-100 p-4 shadow-soft border-2 border-yellow-200 shrink-0">
+          <div className="mb-2 flex items-center gap-2 text-yellow-800">
+            <TrendingUp size={20} />
+            <h2 className="text-lg font-bold">Ajustes de Saldo</h2>
+          </div>
+          {balances.length > 0 ? (
+            <ul className="space-y-1">
+              {balances.map((adj, i) => (
+                <li key={i} className="text-sm text-yellow-900 font-medium">• {adj}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-yellow-800 italic">Tudo equilibrado! Ninguém deve ninguém.</p>
+          )}
         </div>
-        {balances.length > 0 ? (
-          <ul className="space-y-2">
-            {balances.map((adj, i) => (
-              <li key={i} className="text-lg text-yellow-900 font-medium">• {adj}</li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-yellow-800 italic">Tudo equilibrado! Ninguém deve ninguém.</p>
-        )}
-      </div>
+      )}
 
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 shrink-0 overflow-y-auto max-h-[35vh] pr-2 custom-scrollbar">
         {/* Person Cards */}
         {personStats.map(p => (
           <div 
@@ -1131,17 +1191,6 @@ CSV com colunas:
             <div className="flex justify-between items-start mb-4">
               <h3 className="text-xl font-bold" style={{ color: p.cor }}>{p.nome}</h3>
               <div className="flex items-center gap-2">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setPersonToDelete(p);
-                    setIsDeletePessoaModalOpen(true);
-                  }}
-                  className="p-1 text-gray-300 hover:text-rose-500 transition-colors"
-                  title="Excluir Pessoa"
-                >
-                  <Trash2 size={18} />
-                </button>
                 <ChevronDown size={18} className="text-gray-300 group-hover:text-gray-500 transition-colors" />
               </div>
             </div>
@@ -1159,55 +1208,59 @@ CSV com colunas:
         ))}
       </div>
 
-      <div className="mt-12 grid grid-cols-1 gap-8 lg:grid-cols-2">
-        {/* Bar Chart */}
-        <div className="rounded-2xl bg-white p-6 shadow-soft border-soft">
-          <div className="h-[500px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={barChartData}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="day" />
-                <YAxis tickFormatter={(val) => formatCurrency(val).replace('R$', '').trim()} />
-                <Tooltip 
-                  formatter={(value: number) => [formatCurrency(value), 'Valor']}
-                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                  cursor={{ fill: '#f3f4f6' }}
-                />
-                {pessoas.map(p => (
-                  <Bar key={p.id} dataKey={p.nome} stackId="a" fill={p.cor} radius={[0, 0, 0, 0]} />
-                ))}
-                <Bar dataKey="Dividir" stackId="a" fill="#ef4444" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Pie Chart */}
-        <div className="rounded-2xl bg-white p-6 shadow-soft border-soft">
-          <div className="h-[500px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  activeIndex={activePieIndex}
-                  activeShape={renderActiveShape}
-                  data={pieChartData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={80}
-                  outerRadius={140}
-                  fill="#8884d8"
-                  dataKey="value"
-                  onMouseEnter={(_, index) => setActivePieIndex(index)}
-                >
-                  {pieChartData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={PALETTES[0].colors[index % PALETTES[0].colors.length]} stroke="#fff" strokeWidth={2} />
+      {hasRecords && (
+        <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2 flex-1 min-h-0">
+          {/* Bar Chart */}
+          <div className="rounded-2xl bg-white p-4 shadow-soft border-soft flex flex-col min-h-0">
+            <div className="flex-1 w-full min-h-0">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={barChartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="day" tick={{ fontSize: 10 }} />
+                  <YAxis tickFormatter={(val) => formatCurrency(val).replace('R$', '').trim()} tick={{ fontSize: 10 }} />
+                  <Tooltip 
+                    formatter={(value: number) => [formatCurrency(value), 'Valor']}
+                    contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                    cursor={{ fill: '#f3f4f6' }}
+                  />
+                  <Legend verticalAlign="top" height={36} wrapperStyle={{ fontSize: '11px', fontWeight: '500' }} />
+                  {pessoas.map(p => (
+                    <Bar key={p.id} dataKey={p.nome} stackId="a" fill={p.cor} radius={[0, 0, 0, 0]} />
                   ))}
-                </Pie>
-              </PieChart>
-            </ResponsiveContainer>
+                  <Bar dataKey="Dividir" stackId="a" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Pie Chart */}
+          <div className="rounded-2xl bg-white p-4 shadow-soft border-soft flex flex-col min-h-0">
+            <div className="flex-1 w-full min-h-0">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    activeIndex={activePieIndex}
+                    activeShape={renderActiveShape}
+                    data={pieChartData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius="40%"
+                    outerRadius="65%"
+                    fill="#8884d8"
+                    dataKey="value"
+                    onMouseEnter={(_, index) => setActivePieIndex(index)}
+                  >
+                    {pieChartData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={PALETTES[0].colors[index % PALETTES[0].colors.length]} stroke="#fff" strokeWidth={2} />
+                    ))}
+                  </Pie>
+                  <Legend verticalAlign="bottom" height={36} wrapperStyle={{ fontSize: '11px', fontWeight: '500' }} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Modals */}
       <Modal isOpen={isPessoaModalOpen} onClose={() => setIsPessoaModalOpen(false)} title="Adicionar Pessoa">
@@ -1475,7 +1528,7 @@ CSV com colunas:
                 {filteredMovements.length > 0 ? (
                   filteredMovements.map(m => (
                     <tr key={m.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-4 py-3 whitespace-nowrap">{format(parseISO(m.data), 'dd/MM/yyyy')}</td>
+                      <td className="px-4 py-3 whitespace-nowrap">{m.formattedDate}</td>
                       <td className="px-4 py-3">{m.descricao}</td>
                       <td className="px-4 py-3">
                         <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-600">
@@ -1525,7 +1578,18 @@ CSV com colunas:
       >
         {selectedPersonDetails && (
           <div className="space-y-6">
-            <div className="flex justify-end">
+            <div className="flex justify-between items-center">
+              <button
+                onClick={() => {
+                  setPersonToDelete(selectedPersonDetails.person);
+                  setIsDeletePessoaModalOpen(true);
+                }}
+                className="flex items-center gap-2 rounded-xl bg-rose-50 px-4 py-2 text-sm font-bold text-rose-600 hover:bg-rose-100 transition-all active:scale-95 shadow-sm"
+                title="Excluir Pessoa e Registros"
+              >
+                <Trash2 size={18} />
+                Excluir Pessoa
+              </button>
               <button
                 onClick={() => setIsExportModalOpen(true)}
                 className="flex items-center gap-2 rounded-xl bg-indigo-50 px-4 py-2 text-sm font-bold text-indigo-600 hover:bg-indigo-100 transition-all active:scale-95 shadow-sm"
@@ -1584,7 +1648,7 @@ CSV com colunas:
                     {selectedPersonDetails.movements.length > 0 ? (
                       selectedPersonDetails.movements.map((m: any, idx: number) => (
                         <tr key={idx} className="hover:bg-gray-50 transition-colors">
-                          <td className="px-4 py-3 whitespace-nowrap">{format(parseISO(m.displayData), 'dd/MM/yyyy')}</td>
+                          <td className="px-4 py-3 whitespace-nowrap">{m.formattedDate}</td>
                           <td className="px-4 py-3">
                             <div className="font-medium">{m.descricao}</div>
                             {m.categoria_nome && (
@@ -1813,10 +1877,10 @@ CSV com colunas:
           setPersonToDelete(null);
         }}
         onConfirm={handleDeletePessoa}
-        title="Excluir Pessoa?"
-        message={`Tem certeza que deseja excluir ${personToDelete?.nome}? Todas as despesas e salários associados a esta pessoa também serão removidos permanentemente.`}
-        confirmLabel="Excluir Tudo"
-        cancelLabel="Manter"
+        title="Excluir Pessoa Permanentemente?"
+        message={`ATENÇÃO: Esta ação é irreversível. Ao excluir ${personToDelete?.nome}, TODOS os registros de despesas e salários associados a esta pessoa serão apagados do sistema para sempre. Deseja prosseguir?`}
+        confirmLabel="Sim, Excluir Tudo"
+        cancelLabel="Não, Manter Dados"
         type="danger"
       />
 

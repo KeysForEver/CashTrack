@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Filter, Users, DollarSign, CreditCard, Tag, TrendingUp, ChevronDown, ClipboardCheck, Trash2, Download, Upload, RotateCcw, Layers, Loader2, PieChart as PieChartIcon, BarChart as BarChartIcon } from 'lucide-react';
+import { Plus, Filter, Users, DollarSign, CreditCard, Tag, TrendingUp, ChevronDown, ChevronUp, ClipboardCheck, Trash2, Download, Upload, RotateCcw, Layers, Loader2, PieChart as PieChartIcon, BarChart as BarChartIcon, Check, ArrowUp, ArrowDown, X, Search } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
@@ -42,8 +42,8 @@ const renderActiveShape = (props: any) => {
 
   const label = `${payload.name} (${formatCurrency(value)}) - ${(percent * 100).toFixed(0)}%`;
   // Dynamic font size calculation based on string length to prevent overflow
-  // Base size 12, minimum 9
-  const dynamicFontSize = Math.max(9, Math.min(12, 12 * (24 / Math.max(24, label.length))));
+  // Base size 14, minimum 11
+  const dynamicFontSize = Math.max(11, Math.min(14, 14 * (24 / Math.max(24, label.length))));
 
   return (
     <g>
@@ -259,6 +259,8 @@ CSV com colunas:
   const [newCategoria, setNewCategoria] = useState({ nome: '' });
   const [importPessoaId, setImportPessoaId] = useState('');
   const [logSearchTerm, setLogSearchTerm] = useState('');
+  const [logSort, setLogSort] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
+  const [logFilters, setLogFilters] = useState<Record<string, string[]>>({});
   const [reviewSearchTerm, setReviewSearchTerm] = useState('');
 
   const fetchData = async () => {
@@ -605,43 +607,228 @@ CSV com colunas:
   }, [despesas, salarios, pessoas]);
 
   const filteredMovements = useMemo(() => {
-    if (!logSearchTerm) return allMovements;
-    
-    const normalize = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-    const term = normalize(logSearchTerm).trim();
-    
-    // Check for MM/YYYY pattern (e.g. 11/2025 or 11/25)
-    const monthYearRegex = /^(\d{1,2})\s*[\/\-]\s*(\d{2,4})$/;
-    const myMatch = term.match(monthYearRegex);
-    
-    return allMovements.filter(m => {
-      // If it's a month/year search
-      if (myMatch && m.isValidDate) {
-        const searchMonth = parseInt(myMatch[1]);
-        const searchYear = myMatch[2];
-        
-        const monthMatches = m.month === searchMonth;
-        const yearMatches = searchYear.length === 2 
-          ? m.year.endsWith(searchYear) 
-          : m.year === searchYear;
-          
-        if (monthMatches && yearMatches) return true;
-      }
+    let result = [...allMovements];
 
-      return (
-        m.data.includes(term) ||
-        m.formattedDate.includes(term) ||
-        normalize(m.monthName).includes(term) ||
-        normalize(m.monthNameShort).includes(term) ||
-        normalize(m.descricao).includes(term) ||
-        normalize(m.categoria).includes(term) ||
-        m.valor.toString().includes(term) ||
-        normalize(m.tipo).includes(term) ||
-        normalize(m.pessoa).includes(term) ||
-        normalize(m.destino).includes(term)
-      );
+    // 1. Search Filter
+    if (logSearchTerm) {
+      const normalize = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const term = normalize(logSearchTerm).trim();
+      
+      const monthYearRegex = /^(\d{1,2})\s*[\/\-]\s*(\d{2,4})$/;
+      const myMatch = term.match(monthYearRegex);
+      
+      result = result.filter(m => {
+        if (myMatch && m.isValidDate) {
+          const searchMonth = parseInt(myMatch[1]);
+          const searchYear = myMatch[2];
+          const monthMatches = m.month === searchMonth;
+          const yearMatches = searchYear.length === 2 
+            ? m.year.endsWith(searchYear) 
+            : m.year === searchYear;
+          if (monthMatches && yearMatches) return true;
+        }
+
+        return (
+          m.data.includes(term) ||
+          m.formattedDate.includes(term) ||
+          normalize(m.monthName).includes(term) ||
+          normalize(m.monthNameShort).includes(term) ||
+          normalize(m.descricao).includes(term) ||
+          normalize(m.categoria).includes(term) ||
+          m.valor.toString().includes(term) ||
+          normalize(m.tipo).includes(term) ||
+          normalize(m.pessoa).includes(term) ||
+          normalize(m.destino).includes(term)
+        );
+      });
+    }
+
+    // 2. Column Filters
+    Object.entries(logFilters).forEach(([key, values]) => {
+      const filterValues = values as string[];
+      if (filterValues.length > 0) {
+        result = result.filter(m => {
+          const val = String((m as any)[key]);
+          return filterValues.includes(val);
+        });
+      }
     });
-  }, [allMovements, logSearchTerm]);
+
+    // 3. Sorting
+    if (logSort) {
+      result.sort((a, b) => {
+        const valA = (a as any)[logSort.key];
+        const valB = (b as any)[logSort.key];
+        
+        let comparison = 0;
+        if (typeof valA === 'number' && typeof valB === 'number') {
+          comparison = valA - valB;
+        } else {
+          comparison = String(valA).localeCompare(String(valB));
+        }
+        
+        return logSort.direction === 'asc' ? comparison : -comparison;
+      });
+    } else {
+      // Default sort by date descending
+      result.sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime());
+    }
+
+    return result;
+  }, [allMovements, logSearchTerm, logSort, logFilters]);
+
+  const getUniqueValues = (key: string) => {
+    let result = [...allMovements];
+
+    // Apply search
+    if (logSearchTerm) {
+      const normalize = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const term = normalize(logSearchTerm).trim();
+      const monthYearRegex = /^(\d{1,2})\s*[\/\-]\s*(\d{2,4})$/;
+      const myMatch = term.match(monthYearRegex);
+      
+      result = result.filter(m => {
+        if (myMatch && m.isValidDate) {
+          const searchMonth = parseInt(myMatch[1]);
+          const searchYear = myMatch[2];
+          if (m.month === searchMonth && (searchYear.length === 2 ? m.year.endsWith(searchYear) : m.year === searchYear)) return true;
+        }
+        return (
+          m.data.includes(term) ||
+          m.formattedDate.includes(term) ||
+          normalize(m.monthName).includes(term) ||
+          normalize(m.monthNameShort).includes(term) ||
+          normalize(m.descricao).includes(term) ||
+          normalize(m.categoria).includes(term) ||
+          m.valor.toString().includes(term) ||
+          normalize(m.tipo).includes(term) ||
+          normalize(m.pessoa).includes(term) ||
+          normalize(m.destino).includes(term)
+        );
+      });
+    }
+
+    // Apply other column filters
+    Object.entries(logFilters).forEach(([fKey, values]) => {
+      const filterValues = values as string[];
+      if (fKey !== key && filterValues.length > 0) {
+        result = result.filter(m => filterValues.includes(String((m as any)[fKey])));
+      }
+    });
+
+    const values = result.map(m => String((m as any)[key]));
+    return Array.from(new Set(values)).sort();
+  };
+
+  const LogTableHeader = ({ label, columnKey, isLast }: { label: string, columnKey: string, isLast?: boolean }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const uniqueValues = useMemo(() => getUniqueValues(columnKey), [columnKey, allMovements]);
+    const activeFilters = logFilters[columnKey] || [];
+
+    const toggleSort = (direction: 'asc' | 'desc') => {
+      setLogSort({ key: columnKey, direction });
+      setIsOpen(false);
+    };
+
+    const toggleFilter = (value: string) => {
+      setLogFilters(prev => {
+        const current = prev[columnKey] || [];
+        const next = current.includes(value)
+          ? current.filter(v => v !== value)
+          : [...current, value];
+        return { ...prev, [columnKey]: next };
+      });
+    };
+
+    const clearFilters = () => {
+      setLogFilters(prev => {
+        const next = { ...prev };
+        delete next[columnKey];
+        return next;
+      });
+    };
+
+    return (
+      <th className="px-4 py-3 font-semibold relative group min-w-[120px]">
+        <div 
+          className="flex items-center gap-1 cursor-pointer hover:text-indigo-600 transition-colors"
+          onClick={() => setIsOpen(!isOpen)}
+        >
+          <span className="truncate">{label}</span>
+          <div className="flex flex-col -space-y-1 shrink-0">
+            <ChevronUp size={10} className={cn(logSort?.key === columnKey && logSort?.direction === 'asc' ? "text-indigo-600" : "text-gray-300")} />
+            <ChevronDown size={10} className={cn(logSort?.key === columnKey && logSort?.direction === 'desc' ? "text-indigo-600" : "text-gray-300")} />
+          </div>
+          {activeFilters.length > 0 && (
+            <div className="w-1.5 h-1.5 rounded-full bg-indigo-600 ml-1 shrink-0" />
+          )}
+        </div>
+
+        <AnimatePresence>
+          {isOpen && (
+            <>
+              <div 
+                className="fixed inset-0 z-30" 
+                onClick={() => setIsOpen(false)} 
+              />
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 10 }}
+                className={cn(
+                  "absolute top-full z-40 mt-1 w-56 rounded-xl bg-white p-2 shadow-xl border border-gray-100",
+                  isLast ? "right-0" : "left-0"
+                )}
+              >
+                <div className="space-y-1 mb-2 pb-2 border-b border-gray-50">
+                  <button
+                    onClick={() => toggleSort('asc')}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                  >
+                    <ArrowUp size={14} /> Ordenar A-Z / Menor
+                  </button>
+                  <button
+                    onClick={() => toggleSort('desc')}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                  >
+                    <ArrowDown size={14} /> Ordenar Z-A / Maior
+                  </button>
+                </div>
+
+                <div className="max-h-48 overflow-y-auto custom-scrollbar space-y-0.5">
+                  <div className="px-3 py-1 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Filtros</div>
+                  {uniqueValues.map(val => (
+                    <button
+                      key={val}
+                      onClick={() => toggleFilter(val)}
+                      className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50"
+                    >
+                      <div className={cn(
+                        "flex h-4 w-4 items-center justify-center rounded border transition-colors",
+                        activeFilters.includes(val) ? "bg-indigo-600 border-indigo-600" : "border-gray-300"
+                      )}>
+                        {activeFilters.includes(val) && <Check size={10} className="text-white" />}
+                      </div>
+                      <span className="truncate">{val}</span>
+                    </button>
+                  ))}
+                </div>
+
+                {activeFilters.length > 0 && (
+                  <button
+                    onClick={clearFilters}
+                    className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg border border-rose-100 px-3 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50"
+                  >
+                    <X size={14} /> Limpar Filtros
+                  </button>
+                )}
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
+      </th>
+    );
+  };
 
   const handleAddPessoa = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1258,16 +1445,26 @@ CSV com colunas:
                 >
                   <div className="flex-1 w-full min-h-0">
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={barChartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                      <BarChart data={barChartData} margin={{ top: 10, right: 130, left: 0, bottom: 0 }}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                        <XAxis dataKey="day" tick={{ fontSize: 10 }} />
-                        <YAxis tickFormatter={(val) => formatCurrency(val).replace('R$', '').trim()} tick={{ fontSize: 10 }} />
+                        <XAxis dataKey="day" tick={{ fontSize: 11 }} />
+                        <YAxis tickFormatter={(val) => formatCurrency(val).replace('R$', '').trim()} tick={{ fontSize: 11 }} />
                         <Tooltip 
                           formatter={(value: number) => [formatCurrency(value), 'Valor']}
                           contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                           cursor={{ fill: '#f3f4f6' }}
                         />
-                        <Legend verticalAlign="top" height={36} wrapperStyle={{ fontSize: '11px', fontWeight: '500', paddingTop: '10px' }} />
+                        <Legend 
+                          verticalAlign="middle" 
+                          align="right" 
+                          layout="vertical" 
+                          wrapperStyle={{ 
+                            fontSize: '13px', 
+                            fontWeight: '600', 
+                            paddingLeft: '20px',
+                            width: '120px'
+                          }} 
+                        />
                         {pessoas.map(p => (
                           <Bar key={p.id} dataKey={p.nome} stackId="a" fill={p.cor} radius={[0, 0, 0, 0]} />
                         ))}
@@ -1304,19 +1501,6 @@ CSV com colunas:
                             <Cell key={`cell-${index}`} fill={PALETTES[0].colors[index % PALETTES[0].colors.length]} stroke="#fff" strokeWidth={2} />
                           ))}
                         </Pie>
-                        <Legend 
-                          verticalAlign="bottom" 
-                          height={60} 
-                          layout="horizontal"
-                          align="center"
-                          wrapperStyle={{ 
-                            fontSize: '11px', 
-                            fontWeight: '500', 
-                            paddingTop: '20px',
-                            overflowY: 'auto',
-                            maxHeight: '80px'
-                          }} 
-                        />
                       </PieChart>
                     </ResponsiveContainer>
                   </div>
@@ -1573,6 +1757,20 @@ CSV com colunas:
                 <Download size={18} />
                 Exportar
               </button>
+              {(logSearchTerm || logSort || Object.values(logFilters).some(v => (v as string[]).length > 0)) && (
+                <button
+                  onClick={() => {
+                    setLogSearchTerm('');
+                    setLogSort(null);
+                    setLogFilters({});
+                  }}
+                  className="flex items-center gap-2 rounded-xl bg-rose-50 px-4 py-2 text-sm font-bold text-rose-600 hover:bg-rose-100 transition-all active:scale-95 shadow-sm"
+                  title="Limpar todos os filtros"
+                >
+                  <RotateCcw size={18} />
+                  Limpar
+                </button>
+              )}
             </div>
           </div>
 
@@ -1580,13 +1778,13 @@ CSV com colunas:
             <table className="w-full text-left text-sm">
               <thead className="sticky top-[48px] bg-gray-100 text-gray-600 z-10">
                 <tr>
-                  <th className="px-4 py-3 font-semibold">Data</th>
-                  <th className="px-4 py-3 font-semibold">Descrição</th>
-                  <th className="px-4 py-3 font-semibold">Categoria</th>
-                  <th className="px-4 py-3 font-semibold">Valor</th>
-                  <th className="px-4 py-3 font-semibold">Tipo</th>
-                  <th className="px-4 py-3 font-semibold">Pessoa</th>
-                  <th className="px-4 py-3 font-semibold">Destino</th>
+                  <LogTableHeader label="Data" columnKey="formattedDate" />
+                  <LogTableHeader label="Descrição" columnKey="descricao" />
+                  <LogTableHeader label="Categoria" columnKey="categoria" />
+                  <LogTableHeader label="Valor" columnKey="valor" />
+                  <LogTableHeader label="Tipo" columnKey="tipo" />
+                  <LogTableHeader label="Pessoa" columnKey="pessoa" />
+                  <LogTableHeader label="Destino" columnKey="destino" isLast />
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50 bg-white">
@@ -1643,7 +1841,14 @@ CSV com colunas:
       >
         {selectedPersonDetails && (
           <div className="space-y-6">
-            <div className="flex justify-between items-center">
+            <div className="flex justify-end items-center gap-2">
+              <button
+                onClick={() => setIsExportModalOpen(true)}
+                className="flex items-center gap-2 rounded-xl bg-indigo-50 px-4 py-2 text-sm font-bold text-indigo-600 hover:bg-indigo-100 transition-all active:scale-95 shadow-sm"
+              >
+                <Download size={18} />
+                Exportar
+              </button>
               <button
                 onClick={() => {
                   setPersonToDelete(selectedPersonDetails.person);
@@ -1653,14 +1858,6 @@ CSV com colunas:
                 title="Excluir Pessoa e Registros"
               >
                 <Trash2 size={18} />
-                Excluir Pessoa
-              </button>
-              <button
-                onClick={() => setIsExportModalOpen(true)}
-                className="flex items-center gap-2 rounded-xl bg-indigo-50 px-4 py-2 text-sm font-bold text-indigo-600 hover:bg-indigo-100 transition-all active:scale-95 shadow-sm"
-              >
-                <Download size={18} />
-                Exportar
               </button>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

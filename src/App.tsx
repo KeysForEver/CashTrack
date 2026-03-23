@@ -5,7 +5,10 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   PieChart, Pie, Cell, Sector, Legend
 } from 'recharts';
-import { format, parseISO, getMonth, getYear, startOfMonth, endOfMonth, eachDayOfInterval } from 'date-fns';
+import { 
+  format, parseISO, getMonth, getYear, startOfMonth, endOfMonth, eachDayOfInterval,
+  differenceInDays, eachMonthOfInterval, eachYearOfInterval, isSameMonth, isSameYear
+} from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import * as XLSX from 'xlsx';
 import { Pessoa, Categoria, Despesa, Salario, PALETTES } from './types';
@@ -103,8 +106,8 @@ export default function App() {
   const [despesas, setDespesas] = useState<Despesa[]>([]);
   const [salarios, setSalarios] = useState<Salario[]>([]);
 
-  const [filterMonth, setFilterMonth] = useState<number>(-1);
-  const [filterYear, setFilterYear] = useState<number>(-1);
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
 
   const [isPessoaModalOpen, setIsPessoaModalOpen] = useState(false);
   const [isDespesaModalOpen, setIsDespesaModalOpen] = useState(false);
@@ -302,48 +305,27 @@ CSV com colunas:
     };
   }, []);
 
-  const availableYears = useMemo(() => {
-    const years = new Set<number>();
-    despesas.forEach(d => years.add(getYear(parseISO(d.data))));
-    salarios.forEach(s => years.add(getYear(parseISO(s.data))));
-    return Array.from(years).sort((a, b) => b - a);
-  }, [despesas, salarios]);
-
-  const availableMonths = useMemo(() => {
-    const months = new Set<number>();
-    const items = [...despesas, ...salarios];
-    items.forEach(item => {
-      const date = parseISO(item.data);
-      if (filterYear === -1 || getYear(date) === filterYear) {
-        months.add(getMonth(date));
-      }
-    });
-    return Array.from(months).sort((a, b) => a - b);
-  }, [despesas, salarios, filterYear]);
-
   const filteredDespesas = useMemo(() => {
     return despesas.filter(d => {
       const date = parseISO(d.data);
       if (isNaN(date.getTime())) return true; // Keep invalid dates to show them
-      const m = getMonth(date);
-      const y = getYear(date);
-      const matchYear = filterYear === -1 || y === filterYear;
-      const matchMonth = filterMonth === -1 || m === filterMonth;
-      return matchYear && matchMonth;
+      const dateStr = d.data;
+      const matchStart = !startDate || dateStr >= startDate;
+      const matchEnd = !endDate || dateStr <= endDate;
+      return matchStart && matchEnd;
     });
-  }, [despesas, filterMonth, filterYear]);
+  }, [despesas, startDate, endDate]);
 
   const filteredSalarios = useMemo(() => {
     return salarios.filter(s => {
       const date = parseISO(s.data);
       if (isNaN(date.getTime())) return true;
-      const m = getMonth(date);
-      const y = getYear(date);
-      const matchYear = filterYear === -1 || y === filterYear;
-      const matchMonth = filterMonth === -1 || m === filterMonth;
-      return matchYear && matchMonth;
+      const dateStr = s.data;
+      const matchStart = !startDate || dateStr >= startDate;
+      const matchEnd = !endDate || dateStr <= endDate;
+      return matchStart && matchEnd;
     });
-  }, [salarios, filterMonth, filterYear]);
+  }, [salarios, startDate, endDate]);
 
   const hasRecords = filteredDespesas.length > 0 || filteredSalarios.length > 0;
 
@@ -479,18 +461,45 @@ CSV com colunas:
   }, [selectedPersonId, pessoas, filteredDespesas, filteredSalarios]);
 
   const barChartData = useMemo(() => {
-    // If specific month and year are selected, show days
-    if (filterMonth !== -1 && filterYear !== -1) {
-      const days = eachDayOfInterval({
-        start: startOfMonth(new Date(filterYear, filterMonth)),
-        end: endOfMonth(new Date(filterYear, filterMonth))
-      });
+    const items = [...filteredDespesas, ...filteredSalarios];
+    if (items.length === 0) return [];
 
+    // Determine the range
+    let start: Date;
+    let end: Date;
+
+    if (startDate && endDate) {
+      start = parseISO(startDate);
+      end = parseISO(endDate);
+    } else if (startDate) {
+      start = parseISO(startDate);
+      const dates = items.map(i => parseISO(i.data)).filter(d => !isNaN(d.getTime()));
+      end = dates.length > 0 ? new Date(Math.max(...dates.map(d => d.getTime()))) : new Date();
+    } else if (endDate) {
+      end = parseISO(endDate);
+      const dates = items.map(i => parseISO(i.data)).filter(d => !isNaN(d.getTime()));
+      start = dates.length > 0 ? new Date(Math.min(...dates.map(d => d.getTime()))) : new Date();
+    } else {
+      // If no range, find min/max from data
+      const dates = items.map(i => parseISO(i.data)).filter(d => !isNaN(d.getTime()));
+      if (dates.length === 0) return [];
+      start = new Date(Math.min(...dates.map(d => d.getTime())));
+      end = new Date(Math.max(...dates.map(d => d.getTime())));
+    }
+
+    // Ensure start is before end
+    if (start > end) [start, end] = [end, start];
+
+    const diffDays = differenceInDays(end, start);
+
+    if (diffDays <= 62) {
+      // Show days
+      const days = eachDayOfInterval({ start, end });
       return days.map(day => {
         const dayStr = format(day, 'yyyy-MM-dd');
         const dayDespesas = filteredDespesas.filter(d => d.data === dayStr);
         
-        const data: any = { day: format(day, 'dd') };
+        const data: any = { day: format(day, 'dd/MM') };
         pessoas.forEach(p => {
           data[p.nome] = dayDespesas
             .filter(d => d.origem_id === p.id && d.destino !== 'Dividir')
@@ -502,13 +511,12 @@ CSV com colunas:
         
         return data;
       });
-    }
-
-    // If only year is selected (Month is "All"), show months
-    if (filterYear !== -1) {
-      return Array.from({ length: 12 }).map((_, m) => {
-        const monthDespesas = filteredDespesas.filter(d => getMonth(parseISO(d.data)) === m);
-        const data: any = { day: format(new Date(filterYear, m), 'MMM', { locale: ptBR }) };
+    } else if (diffDays <= 365 * 2) {
+      // Show months
+      const months = eachMonthOfInterval({ start, end });
+      return months.map(month => {
+        const monthDespesas = filteredDespesas.filter(d => isSameMonth(parseISO(d.data), month));
+        const data: any = { day: format(month, 'MMM/yy', { locale: ptBR }) };
         pessoas.forEach(p => {
           data[p.nome] = monthDespesas
             .filter(d => d.origem_id === p.id && d.destino !== 'Dividir')
@@ -519,23 +527,24 @@ CSV com colunas:
           .reduce((sum, d) => sum + d.valor, 0);
         return data;
       });
-    }
-
-    // If "All Years" is selected, show years
-    return availableYears.map(y => {
-      const yearDespesas = filteredDespesas.filter(d => getYear(parseISO(d.data)) === y);
-      const data: any = { day: y.toString() };
-      pessoas.forEach(p => {
-        data[p.nome] = yearDespesas
-          .filter(d => d.origem_id === p.id && d.destino !== 'Dividir')
+    } else {
+      // Show years
+      const years = eachYearOfInterval({ start, end });
+      return years.map(year => {
+        const yearDespesas = filteredDespesas.filter(d => isSameYear(parseISO(d.data), year));
+        const data: any = { day: format(year, 'yyyy') };
+        pessoas.forEach(p => {
+          data[p.nome] = yearDespesas
+            .filter(d => d.origem_id === p.id && d.destino !== 'Dividir')
+            .reduce((sum, d) => sum + d.valor, 0);
+        });
+        data['Dividir'] = yearDespesas
+          .filter(d => d.destino === 'Dividir')
           .reduce((sum, d) => sum + d.valor, 0);
+        return data;
       });
-      data['Dividir'] = yearDespesas
-        .filter(d => d.destino === 'Dividir')
-        .reduce((sum, d) => sum + d.valor, 0);
-      return data;
-    }).reverse(); // Show chronological order
-  }, [pessoas, filteredDespesas, filterMonth, filterYear, availableYears]);
+    }
+  }, [pessoas, filteredDespesas, filteredSalarios, startDate, endDate]);
 
   const pieChartData = useMemo(() => {
     const catTotals = categorias.map(c => {
@@ -1167,31 +1176,32 @@ CSV com colunas:
       <main className="flex-1 ml-72 p-6 flex flex-col overflow-hidden">
         <div className="max-w-6xl mx-auto w-full flex flex-col h-full">
           <header className="mb-6 relative flex items-center justify-center min-h-[48px] shrink-0">
-            <div className="flex items-center gap-4 rounded-2xl bg-white p-2 px-4 shadow-soft border-soft">
+            <div className="flex items-center gap-3 rounded-2xl bg-white p-2 px-4 shadow-soft border-soft">
               <Filter className="text-gray-400" size={18} />
-              <select 
-                value={filterMonth} 
-                onChange={(e) => setFilterMonth(parseInt(e.target.value))}
-                className="rounded-lg border-none bg-transparent px-2 py-1 outline-none text-sm font-medium text-gray-700 focus:ring-0"
-              >
-                <option value={-1}>Todos os Meses</option>
-                {availableMonths.map((m) => (
-                  <option key={m} value={m}>
-                    {format(new Date(2024, m), 'MMMM', { locale: ptBR })}
-                  </option>
-                ))}
-              </select>
-              <div className="w-px h-4 bg-gray-200"></div>
-              <select 
-                value={filterYear} 
-                onChange={(e) => setFilterYear(parseInt(e.target.value))}
-                className="rounded-lg border-none bg-transparent px-2 py-1 outline-none text-sm font-medium text-gray-700 focus:ring-0"
-              >
-                <option value={-1}>Todos os Anos</option>
-                {availableYears.map(y => (
-                  <option key={y} value={y}>{y}</option>
-                ))}
-              </select>
+              <div className="flex items-center gap-2">
+                <input 
+                  type="date" 
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="rounded-lg border-none bg-gray-50 px-2 py-1 outline-none text-xs font-medium text-gray-700 focus:ring-2 focus:ring-indigo-500"
+                />
+                <span className="text-gray-400 text-xs">até</span>
+                <input 
+                  type="date" 
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="rounded-lg border-none bg-gray-50 px-2 py-1 outline-none text-xs font-medium text-gray-700 focus:ring-2 focus:ring-indigo-500"
+                />
+                {(startDate || endDate) && (
+                  <button 
+                    onClick={() => { setStartDate(''); setEndDate(''); }}
+                    className="p-1 hover:bg-gray-100 rounded-full text-gray-400 hover:text-red-500 transition-colors"
+                    title="Limpar Filtro"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="absolute right-0 flex items-center gap-2">

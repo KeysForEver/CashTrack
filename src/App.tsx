@@ -798,6 +798,7 @@ CSV com colunas:
         }
 
         return (
+          m.dbId.toString().includes(term) ||
           m.data.includes(term) ||
           m.formattedDate.includes(term) ||
           normalize(m.monthName).includes(term) ||

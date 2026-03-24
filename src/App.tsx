@@ -108,6 +108,8 @@ export default function App() {
 
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
+  const [filterMonth, setFilterMonth] = useState<number>(-1);
+  const [filterYear, setFilterYear] = useState<number>(-1);
 
   const [isPessoaModalOpen, setIsPessoaModalOpen] = useState(false);
   const [isDespesaModalOpen, setIsDespesaModalOpen] = useState(false);
@@ -305,27 +307,66 @@ CSV com colunas:
     };
   }, []);
 
+  const availableYears = useMemo(() => {
+    const years = new Set<number>();
+    despesas.forEach(d => {
+      const date = parseISO(d.data);
+      if (!isNaN(date.getTime())) years.add(getYear(date));
+    });
+    salarios.forEach(s => {
+      const date = parseISO(s.data);
+      if (!isNaN(date.getTime())) years.add(getYear(date));
+    });
+    return Array.from(years).sort((a, b) => b - a);
+  }, [despesas, salarios]);
+
+  const availableMonths = useMemo(() => {
+    const months = new Set<number>();
+    const items = [...despesas, ...salarios];
+    items.forEach(item => {
+      const date = parseISO(item.data);
+      if (!isNaN(date.getTime())) {
+        if (filterYear === -1 || getYear(date) === filterYear) {
+          months.add(getMonth(date));
+        }
+      }
+    });
+    return Array.from(months).sort((a, b) => a - b);
+  }, [despesas, salarios, filterYear]);
+
   const filteredDespesas = useMemo(() => {
     return despesas.filter(d => {
       const date = parseISO(d.data);
       if (isNaN(date.getTime())) return true; // Keep invalid dates to show them
       const dateStr = d.data;
+      const m = getMonth(date);
+      const y = getYear(date);
+
       const matchStart = !startDate || dateStr >= startDate;
       const matchEnd = !endDate || dateStr <= endDate;
-      return matchStart && matchEnd;
+      const matchMonth = filterMonth === -1 || m === filterMonth;
+      const matchYear = filterYear === -1 || y === filterYear;
+
+      return matchStart && matchEnd && matchMonth && matchYear;
     });
-  }, [despesas, startDate, endDate]);
+  }, [despesas, startDate, endDate, filterMonth, filterYear]);
 
   const filteredSalarios = useMemo(() => {
     return salarios.filter(s => {
       const date = parseISO(s.data);
       if (isNaN(date.getTime())) return true;
       const dateStr = s.data;
+      const m = getMonth(date);
+      const y = getYear(date);
+
       const matchStart = !startDate || dateStr >= startDate;
       const matchEnd = !endDate || dateStr <= endDate;
-      return matchStart && matchEnd;
+      const matchMonth = filterMonth === -1 || m === filterMonth;
+      const matchYear = filterYear === -1 || y === filterYear;
+
+      return matchStart && matchEnd && matchMonth && matchYear;
     });
-  }, [salarios, startDate, endDate]);
+  }, [salarios, startDate, endDate, filterMonth, filterYear]);
 
   const hasRecords = filteredDespesas.length > 0 || filteredSalarios.length > 0;
 
@@ -1176,8 +1217,36 @@ CSV com colunas:
       <main className="flex-1 ml-72 p-6 flex flex-col overflow-hidden">
         <div className="max-w-6xl mx-auto w-full flex flex-col h-full">
           <header className="mb-6 relative flex items-center justify-center min-h-[48px] shrink-0">
-            <div className="flex items-center gap-3 rounded-2xl bg-white p-2 px-4 shadow-soft border-soft">
-              <Filter className="text-gray-400" size={18} />
+            <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-white p-2 px-4 shadow-soft border-soft">
+              <div className="flex items-center gap-2">
+                <Filter className="text-gray-400" size={18} />
+                <select 
+                  value={filterMonth} 
+                  onChange={(e) => setFilterMonth(parseInt(e.target.value))}
+                  className="rounded-lg border-none bg-transparent px-2 py-1 outline-none text-sm font-medium text-gray-700 focus:ring-0"
+                >
+                  <option value={-1}>Todos os Meses</option>
+                  {availableMonths.map((m) => (
+                    <option key={m} value={m}>
+                      {format(new Date(2024, m), 'MMMM', { locale: ptBR })}
+                    </option>
+                  ))}
+                </select>
+                <div className="w-px h-4 bg-gray-200"></div>
+                <select 
+                  value={filterYear} 
+                  onChange={(e) => setFilterYear(parseInt(e.target.value))}
+                  className="rounded-lg border-none bg-transparent px-2 py-1 outline-none text-sm font-medium text-gray-700 focus:ring-0"
+                >
+                  <option value={-1}>Todos os Anos</option>
+                  {availableYears.map(y => (
+                    <option key={y} value={y}>{y}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="w-px h-6 bg-gray-200 hidden md:block"></div>
+
               <div className="flex items-center gap-2">
                 <input 
                   type="date" 
@@ -1192,11 +1261,16 @@ CSV com colunas:
                   onChange={(e) => setEndDate(e.target.value)}
                   className="rounded-lg border-none bg-gray-50 px-2 py-1 outline-none text-xs font-medium text-gray-700 focus:ring-2 focus:ring-indigo-500"
                 />
-                {(startDate || endDate) && (
+                {(startDate || endDate || filterMonth !== -1 || filterYear !== -1) && (
                   <button 
-                    onClick={() => { setStartDate(''); setEndDate(''); }}
+                    onClick={() => { 
+                      setStartDate(''); 
+                      setEndDate(''); 
+                      setFilterMonth(-1);
+                      setFilterYear(-1);
+                    }}
                     className="p-1 hover:bg-gray-100 rounded-full text-gray-400 hover:text-red-500 transition-colors"
-                    title="Limpar Filtro"
+                    title="Limpar Filtros"
                   >
                     <X size={14} />
                   </button>

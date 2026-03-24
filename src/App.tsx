@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Filter, Users, DollarSign, CreditCard, Tag, TrendingUp, ChevronDown, ChevronUp, ClipboardCheck, Trash2, Download, Upload, RotateCcw, Layers, Loader2, PieChart as PieChartIcon, BarChart as BarChartIcon, Check, ArrowUp, ArrowDown, X, Search, Pencil } from 'lucide-react';
+import { Plus, Filter, Users, DollarSign, CreditCard, Tag, TrendingUp, ChevronDown, ChevronUp, ClipboardCheck, Trash2, Download, Upload, RotateCcw, Layers, Loader2, PieChart as PieChartIcon, BarChart as BarChartIcon, Check, ArrowUp, ArrowDown, X, Search, Pencil, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
@@ -316,6 +316,12 @@ CSV com colunas:
       window.removeEventListener('unhandledrejection', handleRejection);
     };
   }, []);
+
+  useEffect(() => {
+    if (isLogModalOpen) {
+      fetchData();
+    }
+  }, [isLogModalOpen]);
 
   const handleUpdateValue = async () => {
     if (!editingRecord) return;
@@ -1838,6 +1844,15 @@ CSV com colunas:
                   className="w-full rounded-xl border-gray-200 bg-gray-50 py-2 pl-10 pr-4 outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
+              <button
+                onClick={fetchData}
+                disabled={isLoading}
+                className="flex items-center gap-2 rounded-xl bg-amber-50 px-4 py-2 text-sm font-bold text-amber-600 hover:bg-amber-100 transition-all active:scale-95 shadow-sm disabled:opacity-50"
+                title="Atualizar dados"
+              >
+                <RefreshCw size={18} className={isLoading ? 'animate-spin' : ''} />
+                Atualizar
+              </button>
               <button
                 onClick={() => setIsLogExportModalOpen(true)}
                 className="flex items-center gap-2 rounded-xl bg-indigo-50 px-4 py-2 text-sm font-bold text-indigo-600 hover:bg-indigo-100 transition-all active:scale-95 shadow-sm"

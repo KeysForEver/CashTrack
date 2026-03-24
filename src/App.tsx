@@ -340,6 +340,27 @@ CSV com colunas:
     }
   };
 
+  const handleDeleteRecord = async (id: string, type: 'Entrada' | 'Saída') => {
+    if (!window.confirm('Tem certeza que deseja excluir este registro permanentemente?')) return;
+    
+    setIsLoading(true);
+    try {
+      const recordId = id.split('-')[1];
+      const endpoint = type === 'Saída' ? `/api/despesas/${recordId}` : `/api/salarios/${recordId}`;
+      const res = await fetch(endpoint, {
+        method: 'DELETE'
+      });
+      if (!res.ok) throw new Error('Erro ao excluir registro');
+      
+      setToast('Registro excluído com sucesso!');
+      await fetchData();
+    } catch (err) {
+      setError('Erro ao excluir registro. Tente novamente.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const availableYears = useMemo(() => {
     const years = new Set<number>();
     despesas.forEach(d => {
@@ -773,7 +794,7 @@ CSV com colunas:
   }, [allMovements, logSearchTerm, logSort]);
 
   const filteredAuditLogs = useMemo(() => {
-    let result = auditLogs.filter(l => !l.descricao.startsWith('Lançamento inicial:'));
+    let result = [...auditLogs];
     
     if (logSearchTerm) {
       const normalize = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -1870,6 +1891,8 @@ CSV com colunas:
                   <thead className="bg-gray-50 text-gray-600">
                     <tr>
                       <th className="px-4 py-2 font-semibold">Data/Hora</th>
+                      <th className="px-4 py-2 font-semibold">Tipo</th>
+                      <th className="px-4 py-2 font-semibold">Pessoa</th>
                       <th className="px-4 py-2 font-semibold">Registro</th>
                       <th className="px-4 py-2 font-semibold">De</th>
                       <th className="px-4 py-2 font-semibold">Para</th>
@@ -1881,6 +1904,15 @@ CSV com colunas:
                         <td className="px-4 py-2 text-gray-500">
                           {format(parseISO(log.timestamp), 'dd/MM/yy HH:mm')}
                         </td>
+                        <td className="px-4 py-2">
+                          <span className={cn(
+                            "rounded-full px-2 py-0.5 text-[10px] font-medium",
+                            log.tipo === 'Salário' ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"
+                          )}>
+                            {log.tipo}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2 text-gray-600">{log.pessoa_nome || '-'}</td>
                         <td className="px-4 py-2 font-medium">{log.descricao}</td>
                         <td className="px-4 py-2 text-rose-600">{formatCurrency(log.valor_antigo)}</td>
                         <td className="px-4 py-2 text-emerald-600">{formatCurrency(log.valor_novo)}</td>
@@ -2016,6 +2048,13 @@ CSV com colunas:
                                   title="Editar Valor"
                                 >
                                   <Pencil size={14} />
+                                </button>
+                                <button 
+                                  onClick={() => handleDeleteRecord(m.id, m.tipo)}
+                                  className="p-1 text-gray-400 hover:text-rose-600 opacity-0 group-hover:opacity-100 transition-all"
+                                  title="Excluir Registro"
+                                >
+                                  <Trash2 size={14} />
                                 </button>
                               </div>
                             )}

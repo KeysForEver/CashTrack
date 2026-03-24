@@ -180,8 +180,8 @@ async function startServer() {
     const data = db.prepare(`
       SELECT d.*, p.nome as origem_nome, c.nome as categoria_nome 
       FROM despesas d
-      JOIN pessoas p ON d.origem_id = p.id
-      JOIN categorias c ON d.categoria_id = c.id
+      LEFT JOIN pessoas p ON d.origem_id = p.id
+      LEFT JOIN categorias c ON d.categoria_id = c.id
     `).all();
     res.json(data);
   });
@@ -210,7 +210,7 @@ async function startServer() {
     const data = db.prepare(`
       SELECT s.*, p.nome as recebedor_nome 
       FROM salarios s
-      JOIN pessoas p ON s.recebedor_id = p.id
+      LEFT JOIN pessoas p ON s.recebedor_id = p.id
     `).all();
     res.json(data);
   });

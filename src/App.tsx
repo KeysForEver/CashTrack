@@ -279,17 +279,18 @@ CSV com colunas:
     setIsLoading(true);
     setLoadingMessage('Carregando dados...');
     try {
+      const t = Date.now();
       const [p, c, d, s] = await Promise.all([
-        fetch('/api/pessoas').then(res => res.json()),
-        fetch('/api/categorias').then(res => res.json()),
-        fetch('/api/despesas').then(res => res.json()),
-        fetch('/api/salarios').then(res => res.json()),
+        fetch(`/api/pessoas?t=${t}`).then(res => res.json()),
+        fetch(`/api/categorias?t=${t}`).then(res => res.json()),
+        fetch(`/api/despesas?t=${t}`).then(res => res.json()),
+        fetch(`/api/salarios?t=${t}`).then(res => res.json()),
       ]);
       setPessoas(p);
       setCategorias(c);
       setDespesas(d);
       setSalarios(s);
-      const logs = await fetch('/api/logs').then(res => res.json());
+      const logs = await fetch(`/api/logs?t=${t}`).then(res => res.json());
       setAuditLogs(logs);
     } catch (err) {
       setError('Erro ao carregar dados do servidor. Por favor, tente novamente.');
@@ -665,14 +666,14 @@ CSV com colunas:
     const mDespesas = despesas.map(d => {
       let destinoLabel = d.destino;
       if (d.destino !== 'Dividir') {
-        const p = pessoas.find(p => p.id.toString() === d.destino);
+        const p = pessoas.find(p => Number(p.id) === Number(d.destino));
         destinoLabel = p ? p.nome : d.destino;
       }
       const dateObj = parseISO(d.data);
       const isValidDate = !isNaN(dateObj.getTime());
       
       // Get initial value from logs if available
-      const logs = auditLogs.filter(l => l.registro_id === d.id && l.tipo === 'Despesa');
+      const logs = auditLogs.filter(l => Number(l.registro_id) === Number(d.id) && l.tipo === 'Despesa');
       const initialLog = logs.find(l => l.descricao.startsWith('Lançamento inicial:'));
       const initialValor = initialLog ? initialLog.valor_novo : d.valor;
       
@@ -688,7 +689,8 @@ CSV com colunas:
         year: isValidDate ? getYear(dateObj).toString() : '',
         descricao: d.descricao || 'Despesa',
         categoria: d.categoria_nome || '-',
-        valor: initialValor,
+        valor: d.valor, // Use current value for the log table
+        originalValor: initialValor,
         tipo: 'Saída',
         pessoa: d.origem_nome || '-',
         destino: destinoLabel,
@@ -702,7 +704,7 @@ CSV com colunas:
       const isValidDate = !isNaN(dateObj.getTime());
       
       // Get initial value from logs if available
-      const logs = auditLogs.filter(l => l.registro_id === s.id && l.tipo === 'Salário');
+      const logs = auditLogs.filter(l => Number(l.registro_id) === Number(s.id) && l.tipo === 'Salário');
       const initialLog = logs.find(l => l.descricao.startsWith('Lançamento inicial:'));
       const initialValor = initialLog ? initialLog.valor_novo : s.valor;
       
@@ -718,7 +720,8 @@ CSV com colunas:
         year: isValidDate ? getYear(dateObj).toString() : '',
         descricao: s.descricao || 'Salário',
         categoria: 'Salário',
-        valor: initialValor,
+        valor: s.valor, // Use current value for the log table
+        originalValor: initialValor,
         tipo: 'Entrada',
         pessoa: '-',
         destino: s.recebedor_nome || '-',
@@ -728,13 +731,13 @@ CSV com colunas:
     });
 
     // 2. Deleted records from logs (Lançamento inicial for records that don't exist in current state)
-    const currentDespesaIds = new Set(despesas.map(d => d.id));
-    const currentSalarioIds = new Set(salarios.map(s => s.id));
+    const currentDespesaIds = new Set(despesas.map(d => Number(d.id)));
+    const currentSalarioIds = new Set(salarios.map(s => Number(s.id)));
 
     const deletedLogs = auditLogs.filter(l => {
       if (!l.descricao.startsWith('Lançamento inicial:')) return false;
-      if (l.tipo === 'Despesa' && currentDespesaIds.has(l.registro_id)) return false;
-      if (l.tipo === 'Salário' && currentSalarioIds.has(l.registro_id)) return false;
+      if (l.tipo === 'Despesa' && currentDespesaIds.has(Number(l.registro_id))) return false;
+      if (l.tipo === 'Salário' && currentSalarioIds.has(Number(l.registro_id))) return false;
       return true;
     });
 
@@ -745,7 +748,7 @@ CSV com colunas:
       
       let destinoLabel = l.destino || '-';
       if (l.tipo === 'Despesa' && l.destino && l.destino !== 'Dividir') {
-        const p = pessoas.find(p => p.id.toString() === l.destino);
+        const p = pessoas.find(p => Number(p.id) === Number(l.destino));
         if (p) destinoLabel = p.nome;
       }
 
@@ -764,6 +767,7 @@ CSV com colunas:
         descricao: cleanDesc + ' (Excluído)',
         categoria: l.categoria_nome || (l.tipo === 'Salário' ? 'Salário' : '-'),
         valor: l.valor_novo,
+        originalValor: l.valor_novo,
         tipo: l.tipo === 'Despesa' ? 'Saída' : 'Entrada',
         pessoa: l.pessoa_nome || '-',
         destino: destinoLabel,
@@ -787,6 +791,8 @@ CSV com colunas:
       const myMatch = term.match(monthYearRegex);
       
       result = result.filter(m => {
+        const prefixedId = (m.id.startsWith('d-') ? 'S' : 'E') + m.dbId;
+        
         if (myMatch && m.isValidDate) {
           const searchMonth = parseInt(myMatch[1]);
           const searchYear = myMatch[2];
@@ -798,6 +804,7 @@ CSV com colunas:
         }
 
         return (
+          normalize(prefixedId).includes(term) ||
           m.dbId.toString().includes(term) ||
           m.data.includes(term) ||
           m.formattedDate.includes(term) ||
@@ -830,7 +837,14 @@ CSV com colunas:
       });
     } else {
       // Default sort by date descending
-      result.sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime());
+      result.sort((a, b) => {
+        const dateA = new Date(a.data).getTime();
+        const dateB = new Date(b.data).getTime();
+        if (isNaN(dateA) && isNaN(dateB)) return 0;
+        if (isNaN(dateA)) return 1;
+        if (isNaN(dateB)) return -1;
+        return dateB - dateA;
+      });
     }
 
     return result;
@@ -1950,6 +1964,7 @@ CSV com colunas:
                   <thead className="bg-gray-50 text-gray-600">
                     <tr>
                       <th className="px-4 py-2 font-semibold">Data/Hora</th>
+                      <th className="px-4 py-2 font-semibold">ID</th>
                       <th className="px-4 py-2 font-semibold">Tipo</th>
                       <th className="px-4 py-2 font-semibold">Pessoa</th>
                       <th className="px-4 py-2 font-semibold">Registro</th>
@@ -1962,6 +1977,9 @@ CSV com colunas:
                       <tr key={log.id} className="text-xs">
                         <td className="px-4 py-2 text-gray-500">
                           {format(parseISO(log.timestamp), 'dd/MM/yy HH:mm')}
+                        </td>
+                        <td className="px-4 py-2 font-mono text-[10px] text-gray-400">
+                          {log.tipo === 'Salário' ? 'E' : 'S'}{log.registro_id}
                         </td>
                         <td className="px-4 py-2">
                           <span className={cn(

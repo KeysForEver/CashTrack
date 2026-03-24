@@ -655,24 +655,7 @@ CSV com colunas:
   }, [categorias, filteredDespesas]);
 
   const allMovements = useMemo(() => {
-    // Helper to find initial value from logs
-    const getInitialValue = (id: number, type: 'Despesa' | 'Salário', currentValue: number) => {
-      const logs = auditLogs.filter(l => l.registro_id === id && l.tipo === type);
-      if (logs.length === 0) return currentValue;
-      
-      // Find the "Lançamento inicial" log
-      const initialLog = logs.find(l => l.descricao.startsWith('Lançamento inicial:'));
-      if (initialLog) return initialLog.valor_novo;
-      
-      // If no "Lançamento inicial" (old records), the oldest log's valor_antigo is the initial value
-      const sortedLogs = [...logs].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-      if (sortedLogs.length > 0 && sortedLogs[0].valor_antigo !== undefined) {
-        return sortedLogs[0].valor_antigo;
-      }
-      
-      return currentValue;
-    };
-
+    // 1. Current records from despesas and salarios
     const mDespesas = despesas.map(d => {
       let destinoLabel = d.destino;
       if (d.destino !== 'Dividir') {
@@ -682,7 +665,10 @@ CSV com colunas:
       const dateObj = parseISO(d.data);
       const isValidDate = !isNaN(dateObj.getTime());
       
-      const initialValor = getInitialValue(d.id, 'Despesa', d.valor);
+      // Get initial value from logs if available
+      const logs = auditLogs.filter(l => l.registro_id === d.id && l.tipo === 'Despesa');
+      const initialLog = logs.find(l => l.descricao.startsWith('Lançamento inicial:'));
+      const initialValor = initialLog ? initialLog.valor_novo : d.valor;
       
       return {
         id: `d-${d.id}`,
@@ -708,7 +694,10 @@ CSV com colunas:
       const dateObj = parseISO(s.data);
       const isValidDate = !isNaN(dateObj.getTime());
       
-      const initialValor = getInitialValue(s.id, 'Salário', s.valor);
+      // Get initial value from logs if available
+      const logs = auditLogs.filter(l => l.registro_id === s.id && l.tipo === 'Salário');
+      const initialLog = logs.find(l => l.descricao.startsWith('Lançamento inicial:'));
+      const initialValor = initialLog ? initialLog.valor_novo : s.valor;
       
       return {
         id: `s-${s.id}`,
@@ -730,8 +719,52 @@ CSV com colunas:
       };
     });
 
-    return [...mDespesas, ...mSalarios].sort((a, b) => b.data.localeCompare(a.data));
-  }, [despesas, salarios, pessoas, auditLogs]);
+    // 2. Deleted records from logs (Lançamento inicial for records that don't exist in current state)
+    const currentDespesaIds = new Set(despesas.map(d => d.id));
+    const currentSalarioIds = new Set(salarios.map(s => s.id));
+
+    const deletedLogs = auditLogs.filter(l => {
+      if (!l.descricao.startsWith('Lançamento inicial:')) return false;
+      if (l.tipo === 'Despesa' && currentDespesaIds.has(l.registro_id)) return false;
+      if (l.tipo === 'Salário' && currentSalarioIds.has(l.registro_id)) return false;
+      return true;
+    });
+
+    const mDeleted = deletedLogs.map(l => {
+      const dateStr = l.data_registro || l.timestamp.split('T')[0];
+      const dateObj = parseISO(dateStr);
+      const isValidDate = !isNaN(dateObj.getTime());
+      
+      let destinoLabel = l.destino || '-';
+      if (l.tipo === 'Despesa' && l.destino && l.destino !== 'Dividir') {
+        const p = pessoas.find(p => p.id.toString() === l.destino);
+        if (p) destinoLabel = p.nome;
+      }
+
+      const cleanDesc = l.descricao.replace('Lançamento inicial: ', '');
+
+      return {
+        id: `${l.tipo === 'Despesa' ? 'd' : 's'}-${l.registro_id}`,
+        data: dateStr,
+        dateObj,
+        isValidDate,
+        formattedDate: isValidDate ? format(dateObj, 'dd/MM/yyyy') : dateStr,
+        month: isValidDate ? getMonth(dateObj) + 1 : 0,
+        monthName: isValidDate ? format(dateObj, 'MMMM', { locale: ptBR }) : '',
+        monthNameShort: isValidDate ? format(dateObj, 'MMM', { locale: ptBR }) : '',
+        year: isValidDate ? getYear(dateObj).toString() : '',
+        descricao: cleanDesc + ' (Excluído)',
+        categoria: l.categoria_nome || (l.tipo === 'Salário' ? 'Salário' : '-'),
+        valor: l.valor_novo,
+        tipo: l.tipo === 'Despesa' ? 'Saída' : 'Entrada',
+        pessoa: l.pessoa_nome || '-',
+        destino: destinoLabel,
+        raw: l
+      };
+    });
+
+    return [...mDespesas, ...mSalarios, ...mDeleted].sort((a, b) => b.data.localeCompare(a.data));
+  }, [despesas, salarios, auditLogs, pessoas]);
 
   const filteredMovements = useMemo(() => {
     let result = [...allMovements];
@@ -794,7 +827,10 @@ CSV com colunas:
   }, [allMovements, logSearchTerm, logSort]);
 
   const filteredAuditLogs = useMemo(() => {
-    let result = [...auditLogs];
+    let result = auditLogs.filter(l => 
+      !l.descricao.startsWith('Lançamento inicial:') && 
+      !l.descricao.startsWith('Exclusão:')
+    );
     
     if (logSearchTerm) {
       const normalize = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");

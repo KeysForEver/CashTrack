@@ -59,7 +59,10 @@ async function startServer() {
         valor_novo REAL,
         tipo TEXT NOT NULL,
         registro_id INTEGER NOT NULL,
-        pessoa_id INTEGER
+        pessoa_id INTEGER,
+        data_registro TEXT,
+        destino TEXT,
+        categoria_id INTEGER
       );
     `);
 
@@ -207,8 +210,8 @@ async function startServer() {
 
     // Log the creation
     db.prepare(
-      "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, pessoa_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
-    ).run(new Date().toISOString(), `Lançamento inicial: ${descricao || 'Despesa'}`, 0, roundedValor, 'Despesa', result.lastInsertRowid, origem_id);
+      "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, pessoa_id, data_registro, destino, categoria_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run(new Date().toISOString(), `Lançamento inicial: ${descricao || 'Despesa'}`, 0, roundedValor, 'Despesa', result.lastInsertRowid, origem_id, data, destino, categoria_id);
 
     res.json({ id: result.lastInsertRowid, data, valor: roundedValor, descricao, origem_id, destino, categoria_id });
   });
@@ -242,8 +245,8 @@ async function startServer() {
 
     // Log the creation
     db.prepare(
-      "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, pessoa_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
-    ).run(new Date().toISOString(), `Lançamento inicial: ${descricao || 'Salário'}`, 0, roundedValor, 'Salário', result.lastInsertRowid, recebedor_id);
+      "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, pessoa_id, data_registro, destino) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run(new Date().toISOString(), `Lançamento inicial: ${descricao || 'Salário'}`, 0, roundedValor, 'Salário', result.lastInsertRowid, recebedor_id, data, 'Salário');
 
     res.json({ id: result.lastInsertRowid, data, valor: roundedValor, descricao, recebedor_id });
   });
@@ -332,9 +335,10 @@ async function startServer() {
 
   app.get("/api/logs", (req, res) => {
     const data = db.prepare(`
-      SELECT l.*, p.nome as pessoa_nome 
+      SELECT l.*, p.nome as pessoa_nome, c.nome as categoria_nome 
       FROM logs l
       LEFT JOIN pessoas p ON l.pessoa_id = p.id
+      LEFT JOIN categorias c ON l.categoria_id = c.id
       ORDER BY l.timestamp DESC
     `).all();
     res.json(data);

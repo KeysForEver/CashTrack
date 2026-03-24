@@ -203,6 +203,12 @@ async function startServer() {
     const result = db.prepare(
       "INSERT INTO despesas (data, valor, descricao, origem_id, destino, categoria_id) VALUES (?, ?, ?, ?, ?, ?)"
     ).run(data, roundedValor, descricao || '', origem_id, destino, categoria_id);
+
+    // Log the creation
+    db.prepare(
+      "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id) VALUES (?, ?, ?, ?, ?, ?)"
+    ).run(new Date().toISOString(), `Lançamento inicial: ${descricao || 'Despesa'}`, 0, roundedValor, 'Despesa', result.lastInsertRowid);
+
     res.json({ id: result.lastInsertRowid, data, valor: roundedValor, descricao, origem_id, destino, categoria_id });
   });
 
@@ -232,6 +238,12 @@ async function startServer() {
     const result = db.prepare(
       "INSERT INTO salarios (data, valor, descricao, recebedor_id) VALUES (?, ?, ?, ?)"
     ).run(data, roundedValor, descricao || '', recebedor_id);
+
+    // Log the creation
+    db.prepare(
+      "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id) VALUES (?, ?, ?, ?, ?, ?)"
+    ).run(new Date().toISOString(), `Lançamento inicial: ${descricao || 'Salário'}`, 0, roundedValor, 'Salário', result.lastInsertRowid);
+
     res.json({ id: result.lastInsertRowid, data, valor: roundedValor, descricao, recebedor_id });
   });
 

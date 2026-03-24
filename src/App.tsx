@@ -634,6 +634,24 @@ CSV com colunas:
   }, [categorias, filteredDespesas]);
 
   const allMovements = useMemo(() => {
+    // Helper to find initial value from logs
+    const getInitialValue = (id: number, type: 'Despesa' | 'Salário', currentValue: number) => {
+      const logs = auditLogs.filter(l => l.registro_id === id && l.tipo === type);
+      if (logs.length === 0) return currentValue;
+      
+      // Find the "Lançamento inicial" log
+      const initialLog = logs.find(l => l.descricao.startsWith('Lançamento inicial:'));
+      if (initialLog) return initialLog.valor_novo;
+      
+      // If no "Lançamento inicial" (old records), the oldest log's valor_antigo is the initial value
+      const sortedLogs = [...logs].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      if (sortedLogs.length > 0 && sortedLogs[0].valor_antigo !== undefined) {
+        return sortedLogs[0].valor_antigo;
+      }
+      
+      return currentValue;
+    };
+
     const mDespesas = despesas.map(d => {
       let destinoLabel = d.destino;
       if (d.destino !== 'Dividir') {
@@ -642,6 +660,8 @@ CSV com colunas:
       }
       const dateObj = parseISO(d.data);
       const isValidDate = !isNaN(dateObj.getTime());
+      
+      const initialValor = getInitialValue(d.id, 'Despesa', d.valor);
       
       return {
         id: `d-${d.id}`,
@@ -655,7 +675,7 @@ CSV com colunas:
         year: isValidDate ? getYear(dateObj).toString() : '',
         descricao: d.descricao || 'Despesa',
         categoria: d.categoria_nome || '-',
-        valor: d.valor,
+        valor: initialValor,
         tipo: 'Saída',
         pessoa: d.origem_nome || '-',
         destino: destinoLabel,
@@ -666,6 +686,8 @@ CSV com colunas:
     const mSalarios = salarios.map(s => {
       const dateObj = parseISO(s.data);
       const isValidDate = !isNaN(dateObj.getTime());
+      
+      const initialValor = getInitialValue(s.id, 'Salário', s.valor);
       
       return {
         id: `s-${s.id}`,
@@ -679,7 +701,7 @@ CSV com colunas:
         year: isValidDate ? getYear(dateObj).toString() : '',
         descricao: s.descricao || 'Salário',
         categoria: 'Salário',
-        valor: s.valor,
+        valor: initialValor,
         tipo: 'Entrada',
         pessoa: '-',
         destino: s.recebedor_nome || '-',
@@ -688,7 +710,7 @@ CSV com colunas:
     });
 
     return [...mDespesas, ...mSalarios].sort((a, b) => b.data.localeCompare(a.data));
-  }, [despesas, salarios, pessoas]);
+  }, [despesas, salarios, pessoas, auditLogs]);
 
   const filteredMovements = useMemo(() => {
     let result = [...allMovements];
@@ -749,6 +771,22 @@ CSV com colunas:
 
     return result;
   }, [allMovements, logSearchTerm, logSort]);
+
+  const filteredAuditLogs = useMemo(() => {
+    let result = auditLogs.filter(l => !l.descricao.startsWith('Lançamento inicial:'));
+    
+    if (logSearchTerm) {
+      const normalize = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const term = normalize(logSearchTerm).trim();
+      result = result.filter(l => 
+        normalize(l.descricao).includes(term) ||
+        l.valor_antigo.toString().includes(term) ||
+        l.valor_novo.toString().includes(term)
+      );
+    }
+    
+    return result.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  }, [auditLogs, logSearchTerm]);
 
   const LogTableHeader = ({ label, columnKey }: { label: string, columnKey: string }) => {
     const isSorted = logSort?.key === columnKey;
@@ -1821,7 +1859,7 @@ CSV com colunas:
             </table>
           </div>
 
-          {auditLogs.length > 0 && (
+          {filteredAuditLogs.length > 0 && (
             <div className="mt-8 space-y-4">
               <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
                 <div className="w-1 h-3 bg-amber-500 rounded-full" />
@@ -1838,7 +1876,7 @@ CSV com colunas:
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50 bg-white">
-                    {auditLogs.map(log => (
+                    {filteredAuditLogs.map(log => (
                       <tr key={log.id} className="text-xs">
                         <td className="px-4 py-2 text-gray-500">
                           {format(parseISO(log.timestamp), 'dd/MM/yy HH:mm')}

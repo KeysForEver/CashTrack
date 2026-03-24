@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Filter, Users, DollarSign, CreditCard, Tag, TrendingUp, ChevronDown, ChevronUp, ClipboardCheck, Trash2, Download, Upload, RotateCcw, Layers, Loader2, PieChart as PieChartIcon, BarChart as BarChartIcon, Check, ArrowUp, ArrowDown, X, Search } from 'lucide-react';
+import { Plus, Filter, Users, DollarSign, CreditCard, Tag, TrendingUp, ChevronDown, ChevronUp, ClipboardCheck, Trash2, Download, Upload, RotateCcw, Layers, Loader2, PieChart as PieChartIcon, BarChart as BarChartIcon, Check, ArrowUp, ArrowDown, X, Search, Pencil } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
@@ -501,6 +501,7 @@ CSV com colunas:
         const isValidDate = !isNaN(dateObj.getTime());
         return { 
           ...d, 
+          id: `despesa-${d.id}`,
           tipo: 'Saída', 
           displayData: d.data,
           formattedDate: isValidDate ? format(dateObj, 'dd/MM/yyyy') : d.data
@@ -511,6 +512,7 @@ CSV com colunas:
         const isValidDate = !isNaN(dateObj.getTime());
         return { 
           ...s, 
+          id: `salario-${s.id}`,
           tipo: 'Entrada', 
           displayData: s.data,
           formattedDate: isValidDate ? format(dateObj, 'dd/MM/yyyy') : s.data
@@ -1933,8 +1935,8 @@ CSV com colunas:
                   </thead>
                   <tbody className="divide-y divide-gray-50 bg-white">
                     {selectedPersonDetails.movements.length > 0 ? (
-                      selectedPersonDetails.movements.map((m: any, idx: number) => (
-                        <tr key={idx} className="hover:bg-gray-50 transition-colors group">
+                      selectedPersonDetails.movements.map((m: any) => (
+                        <tr key={m.id} className="hover:bg-gray-50 transition-colors group">
                           <td className="px-4 py-3 whitespace-nowrap">{m.formattedDate}</td>
                           <td className="px-4 py-3">
                             <div className="font-medium">{m.descricao}</div>
@@ -1975,7 +1977,7 @@ CSV com colunas:
                                   className="p-1 text-gray-400 hover:text-indigo-600 opacity-0 group-hover:opacity-100 transition-all"
                                   title="Editar Valor"
                                 >
-                                  <Plus size={14} className="rotate-45" /> {/* Using Plus rotated as a subtle edit icon or just use a real icon if available */}
+                                  <Pencil size={14} />
                                 </button>
                               </div>
                             )}

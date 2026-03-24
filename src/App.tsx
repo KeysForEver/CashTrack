@@ -692,6 +692,7 @@ CSV com colunas:
         tipo: 'Saída',
         pessoa: d.origem_nome || '-',
         destino: destinoLabel,
+        dbId: d.id,
         raw: d
       };
     });
@@ -721,6 +722,7 @@ CSV com colunas:
         tipo: 'Entrada',
         pessoa: '-',
         destino: s.recebedor_nome || '-',
+        dbId: s.id,
         raw: s
       };
     });
@@ -765,6 +767,7 @@ CSV com colunas:
         tipo: l.tipo === 'Despesa' ? 'Saída' : 'Entrada',
         pessoa: l.pessoa_nome || '-',
         destino: destinoLabel,
+        dbId: l.registro_id,
         raw: l
       };
     });
@@ -1880,6 +1883,7 @@ CSV com colunas:
             <table className="w-full text-left text-sm">
               <thead className="sticky top-[48px] bg-gray-100 text-gray-600 z-10">
                 <tr>
+                  <LogTableHeader label="ID" columnKey="dbId" />
                   <LogTableHeader label="Data" columnKey="formattedDate" />
                   <LogTableHeader label="Descrição" columnKey="descricao" />
                   <LogTableHeader label="Categoria" columnKey="categoria" />
@@ -1893,6 +1897,9 @@ CSV com colunas:
                 {filteredMovements.length > 0 ? (
                   filteredMovements.map(m => (
                     <tr key={m.id} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-4 py-3 font-mono text-xs text-gray-500">
+                        {m.id.startsWith('d-') ? 'S' : 'E'}{m.dbId}
+                      </td>
                       <td className="px-4 py-3 whitespace-nowrap">{m.formattedDate}</td>
                       <td className="px-4 py-3">{m.descricao}</td>
                       <td className="px-4 py-3">
@@ -1922,7 +1929,7 @@ CSV com colunas:
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-gray-500 italic">
+                    <td colSpan={8} className="px-4 py-8 text-center text-gray-500 italic">
                       Nenhuma movimentação encontrada.
                     </td>
                   </tr>

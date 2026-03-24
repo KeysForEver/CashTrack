@@ -69,6 +69,9 @@ async function startServer() {
     // Ensure columns exist for existing databases
     try { database.exec("ALTER TABLE despesas ADD COLUMN descricao TEXT DEFAULT ''"); } catch (e) {}
     try { database.exec("ALTER TABLE salarios ADD COLUMN descricao TEXT DEFAULT ''"); } catch (e) {}
+    try { database.exec("ALTER TABLE logs ADD COLUMN data_registro TEXT"); } catch (e) {}
+    try { database.exec("ALTER TABLE logs ADD COLUMN destino TEXT"); } catch (e) {}
+    try { database.exec("ALTER TABLE logs ADD COLUMN categoria_id INTEGER"); } catch (e) {}
   };
 
   // Normalize dates in despesas and salarios to YYYY-MM-DD

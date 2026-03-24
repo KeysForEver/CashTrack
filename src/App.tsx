@@ -10,8 +10,10 @@ import {
   differenceInDays, eachMonthOfInterval, eachYearOfInterval, isSameMonth, isSameYear
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
 import { Pessoa, Categoria, Despesa, Salario, PALETTES } from './types';
+import { copyToClipboard as copyToClipboardUtil } from './utils/clipboard';
 import { Modal } from './components/Modal';
 import { ErrorModal } from './components/ErrorModal';
 import { ConfirmModal } from './components/ConfirmModal';
@@ -135,6 +137,8 @@ export default function App() {
   const [loadingMessage, setLoadingMessage] = useState('');
   const [toast, setToast] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [editingRecord, setEditingRecord] = useState<{ id: string; type: 'Entrada' | 'Saída'; value: string } | null>(null);
 
   const PROMPT_CONTA_CORRENTE = `**Tarefa:**
 Extraia do PDF anexado todas as movimentações da conta corrente (entradas e saídas) e gere um arquivo CSV com as colunas:
@@ -251,10 +255,14 @@ CSV com colunas:
 02/01/2026;Food to Save .BELO HORIZONT;Alimentação;19,90;Saída
 \`\`\``;
 
-  const copyToClipboard = (text: string, message: string) => {
-    navigator.clipboard.writeText(text);
-    setToast(message);
-    setTimeout(() => setToast(null), 3000);
+  const copyToClipboard = async (text: string, message: string) => {
+    const success = await copyToClipboardUtil(text);
+    if (success) {
+      setToast(message);
+      setTimeout(() => setToast(null), 3000);
+    } else {
+      setError('Não foi possível copiar o texto automaticamente. Por favor, tente selecionar e copiar manualmente.');
+    }
   };
 
   // Form states
@@ -281,6 +289,8 @@ CSV com colunas:
       setCategorias(c);
       setDespesas(d);
       setSalarios(s);
+      const logs = await fetch('/api/logs').then(res => res.json());
+      setAuditLogs(logs);
     } catch (err) {
       setError('Erro ao carregar dados do servidor. Por favor, tente novamente.');
     } finally {
@@ -306,6 +316,29 @@ CSV com colunas:
       window.removeEventListener('unhandledrejection', handleRejection);
     };
   }, []);
+
+  const handleUpdateValue = async () => {
+    if (!editingRecord) return;
+    setIsLoading(true);
+    try {
+      const id = editingRecord.id.split('-')[1];
+      const endpoint = editingRecord.type === 'Saída' ? `/api/despesas/${id}` : `/api/salarios/${id}`;
+      const res = await fetch(endpoint, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ valor: editingRecord.value })
+      });
+      if (!res.ok) throw new Error('Erro ao atualizar valor');
+      
+      setToast('Valor atualizado com sucesso!');
+      setEditingRecord(null);
+      await fetchData();
+    } catch (err) {
+      setError('Erro ao atualizar valor. Tente novamente.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const availableYears = useMemo(() => {
     const years = new Set<number>();
@@ -1041,69 +1074,71 @@ CSV com colunas:
     }
   };
 
-  const handleExportData = (options: ExportOptions) => {
+  const handleExportData = async (options: ExportOptions) => {
     if (!selectedPersonDetails) return;
 
-    const dataToExport = selectedPersonDetails.movements.map((m: any) => {
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Resumo');
+
+    const columns: any[] = [];
+    if (options.columns.includes('date')) columns.push({ header: 'Data', key: 'date', width: 15 });
+    if (options.columns.includes('description')) columns.push({ header: 'Descrição', key: 'description', width: 30 });
+    if (options.columns.includes('category')) columns.push({ header: 'Categoria', key: 'category', width: 20 });
+    if (options.columns.includes('value')) columns.push({ header: 'Valor', key: 'value', width: 15 });
+    if (options.columns.includes('type')) columns.push({ header: 'Tipo', key: 'type', width: 15 });
+    worksheet.columns = columns;
+
+    selectedPersonDetails.movements.forEach((m: any) => {
       const row: any = {};
-      if (options.columns.includes('date')) row['Data'] = format(parseISO(m.displayData), 'dd/MM/yyyy');
-      if (options.columns.includes('description')) row['Descrição'] = m.descricao;
-      if (options.columns.includes('category')) row['Categoria'] = m.categoria_nome || '-';
-      if (options.columns.includes('value')) row['Valor'] = m.valor;
-      if (options.columns.includes('type')) row['Tipo'] = m.tipo;
-      return row;
+      if (options.columns.includes('date')) row['date'] = format(parseISO(m.displayData), 'dd/MM/yyyy');
+      if (options.columns.includes('description')) row['description'] = m.descricao;
+      if (options.columns.includes('category')) row['category'] = m.categoria_nome || '-';
+      if (options.columns.includes('value')) row['value'] = m.valor;
+      if (options.columns.includes('type')) row['type'] = m.tipo;
+      worksheet.addRow(row);
     });
 
-    const worksheet = XLSX.utils.json_to_sheet(dataToExport);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Resumo");
-
     if (options.format === 'xlsx') {
-      XLSX.writeFile(workbook, `${options.filename}.xlsx`);
+      const buffer = await workbook.xlsx.writeBuffer();
+      saveAs(new Blob([buffer]), `${options.filename}.xlsx`);
     } else {
-      const csv = XLSX.utils.sheet_to_csv(worksheet);
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const link = document.createElement("a");
-      const url = URL.createObjectURL(blob);
-      link.setAttribute("href", url);
-      link.setAttribute("download", `${options.filename}.csv`);
-      link.style.visibility = 'hidden';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      const buffer = await workbook.csv.writeBuffer();
+      saveAs(new Blob([buffer]), `${options.filename}.csv`);
     }
   };
 
-  const handleExportLog = (options: ExportOptions) => {
-    const dataToExport = filteredMovements.map((m: any) => {
+  const handleExportLog = async (options: ExportOptions) => {
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Log_Atividades');
+
+    const columns: any[] = [];
+    if (options.columns.includes('date')) columns.push({ header: 'Data', key: 'date', width: 15 });
+    if (options.columns.includes('description')) columns.push({ header: 'Descrição', key: 'description', width: 30 });
+    if (options.columns.includes('category')) columns.push({ header: 'Categoria', key: 'category', width: 20 });
+    if (options.columns.includes('value')) columns.push({ header: 'Valor', key: 'value', width: 15 });
+    if (options.columns.includes('type')) columns.push({ header: 'Tipo', key: 'type', width: 15 });
+    if (options.columns.includes('person')) columns.push({ header: 'Pessoa', key: 'person', width: 20 });
+    if (options.columns.includes('destination')) columns.push({ header: 'Destino', key: 'destination', width: 20 });
+    worksheet.columns = columns;
+
+    filteredMovements.forEach((m: any) => {
       const row: any = {};
-      if (options.columns.includes('date')) row['Data'] = format(parseISO(m.data), 'dd/MM/yyyy');
-      if (options.columns.includes('description')) row['Descrição'] = m.descricao;
-      if (options.columns.includes('category')) row['Categoria'] = m.categoria || '-';
-      if (options.columns.includes('value')) row['Valor'] = m.valor;
-      if (options.columns.includes('type')) row['Tipo'] = m.tipo;
-      if (options.columns.includes('person')) row['Pessoa'] = m.pessoa;
-      if (options.columns.includes('destination')) row['Destino'] = m.destino;
-      return row;
+      if (options.columns.includes('date')) row['date'] = format(parseISO(m.data), 'dd/MM/yyyy');
+      if (options.columns.includes('description')) row['description'] = m.descricao;
+      if (options.columns.includes('category')) row['category'] = m.categoria || '-';
+      if (options.columns.includes('value')) row['value'] = m.valor;
+      if (options.columns.includes('type')) row['type'] = m.tipo;
+      if (options.columns.includes('person')) row['person'] = m.pessoa;
+      if (options.columns.includes('destination')) row['destination'] = m.destino;
+      worksheet.addRow(row);
     });
 
-    const worksheet = XLSX.utils.json_to_sheet(dataToExport);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Log_Atividades");
-
     if (options.format === 'xlsx') {
-      XLSX.writeFile(workbook, `${options.filename}.xlsx`);
+      const buffer = await workbook.xlsx.writeBuffer();
+      saveAs(new Blob([buffer]), `${options.filename}.xlsx`);
     } else {
-      const csv = XLSX.utils.sheet_to_csv(worksheet);
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const link = document.createElement("a");
-      const url = URL.createObjectURL(blob);
-      link.setAttribute("href", url);
-      link.setAttribute("download", `${options.filename}.csv`);
-      link.style.visibility = 'hidden';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      const buffer = await workbook.csv.writeBuffer();
+      saveAs(new Blob([buffer]), `${options.filename}.csv`);
     }
   };
 
@@ -1783,6 +1818,39 @@ CSV com colunas:
               </tbody>
             </table>
           </div>
+
+          {auditLogs.length > 0 && (
+            <div className="mt-8 space-y-4">
+              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                <div className="w-1 h-3 bg-amber-500 rounded-full" />
+                Histórico de Alterações
+              </h3>
+              <div className="rounded-xl border border-gray-100 overflow-hidden">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-gray-50 text-gray-600">
+                    <tr>
+                      <th className="px-4 py-2 font-semibold">Data/Hora</th>
+                      <th className="px-4 py-2 font-semibold">Registro</th>
+                      <th className="px-4 py-2 font-semibold">De</th>
+                      <th className="px-4 py-2 font-semibold">Para</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50 bg-white">
+                    {auditLogs.map(log => (
+                      <tr key={log.id} className="text-xs">
+                        <td className="px-4 py-2 text-gray-500">
+                          {format(parseISO(log.timestamp), 'dd/MM/yy HH:mm')}
+                        </td>
+                        <td className="px-4 py-2 font-medium">{log.descricao}</td>
+                        <td className="px-4 py-2 text-rose-600">{formatCurrency(log.valor_antigo)}</td>
+                        <td className="px-4 py-2 text-emerald-600">{formatCurrency(log.valor_novo)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       </Modal>
 
@@ -1866,7 +1934,7 @@ CSV com colunas:
                   <tbody className="divide-y divide-gray-50 bg-white">
                     {selectedPersonDetails.movements.length > 0 ? (
                       selectedPersonDetails.movements.map((m: any, idx: number) => (
-                        <tr key={idx} className="hover:bg-gray-50 transition-colors">
+                        <tr key={idx} className="hover:bg-gray-50 transition-colors group">
                           <td className="px-4 py-3 whitespace-nowrap">{m.formattedDate}</td>
                           <td className="px-4 py-3">
                             <div className="font-medium">{m.descricao}</div>
@@ -1878,7 +1946,39 @@ CSV com colunas:
                             "px-4 py-3 font-medium whitespace-nowrap",
                             m.tipo === 'Entrada' ? "text-emerald-600" : "text-rose-600"
                           )}>
-                            {formatCurrency(m.valor)}
+                            {editingRecord?.id === m.id ? (
+                              <div className="flex items-center gap-2">
+                                <input 
+                                  type="number" 
+                                  step="0.01"
+                                  autoFocus
+                                  value={editingRecord.value}
+                                  onChange={e => setEditingRecord({ ...editingRecord, value: e.target.value })}
+                                  onKeyDown={e => {
+                                    if (e.key === 'Enter') handleUpdateValue();
+                                    if (e.key === 'Escape') setEditingRecord(null);
+                                  }}
+                                  className="w-24 rounded-lg border-gray-200 bg-gray-50 p-1 text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                                />
+                                <button onClick={handleUpdateValue} className="p-1 text-emerald-600 hover:bg-emerald-50 rounded">
+                                  <Check size={16} />
+                                </button>
+                                <button onClick={() => setEditingRecord(null)} className="p-1 text-rose-600 hover:bg-rose-50 rounded">
+                                  <X size={16} />
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                {formatCurrency(m.valor)}
+                                <button 
+                                  onClick={() => setEditingRecord({ id: m.id, type: m.tipo, value: m.valor.toString() })}
+                                  className="p-1 text-gray-400 hover:text-indigo-600 opacity-0 group-hover:opacity-100 transition-all"
+                                  title="Editar Valor"
+                                >
+                                  <Plus size={14} className="rotate-45" /> {/* Using Plus rotated as a subtle edit icon or just use a real icon if available */}
+                                </button>
+                              </div>
+                            )}
                           </td>
                           <td className="px-4 py-3">
                             <span className={cn(

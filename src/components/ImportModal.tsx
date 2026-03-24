@@ -4,6 +4,7 @@ import { Modal } from './Modal';
 import { PROMPT_CONTA_CORRENTE, PROMPT_CARTAO_CREDITO } from '../constants/prompts';
 import { Pessoa, Categoria } from '../types';
 import { parseCSV } from '../utils/csv';
+import { copyToClipboard as copyToClipboardUtil } from '../utils/clipboard';
 
 interface ImportModalProps {
   isOpen: boolean;
@@ -24,9 +25,13 @@ export const ImportModal = ({ isOpen, onClose, pessoas, categorias, onReview, on
     setTimeout(() => setToast(null), 3000);
   };
 
-  const handleCopyPrompt = (text: string, message: string) => {
-    navigator.clipboard.writeText(text);
-    showToast(message);
+  const handleCopyPrompt = async (text: string, message: string) => {
+    const success = await copyToClipboardUtil(text);
+    if (success) {
+      showToast(message);
+    } else {
+      alert('Não foi possível copiar o texto automaticamente. Por favor, tente selecionar e copiar manualmente.');
+    }
   };
 
   const handleImportCSV = async (e: React.ChangeEvent<HTMLInputElement>) => {

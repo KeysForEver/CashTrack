@@ -50,6 +50,16 @@ async function startServer() {
         recebedor_id INTEGER NOT NULL,
         FOREIGN KEY(recebedor_id) REFERENCES pessoas(id)
       );
+
+      CREATE TABLE IF NOT EXISTS logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT NOT NULL,
+        descricao TEXT NOT NULL,
+        valor_antigo REAL,
+        valor_novo REAL,
+        tipo TEXT NOT NULL,
+        registro_id INTEGER NOT NULL
+      );
     `);
 
     // Ensure columns exist for existing databases
@@ -223,6 +233,55 @@ async function startServer() {
       "INSERT INTO salarios (data, valor, descricao, recebedor_id) VALUES (?, ?, ?, ?)"
     ).run(data, roundedValor, descricao || '', recebedor_id);
     res.json({ id: result.lastInsertRowid, data, valor: roundedValor, descricao, recebedor_id });
+  });
+
+  app.patch("/api/despesas/:id", (req, res) => {
+    const { id } = req.params;
+    const { valor } = req.body;
+    const roundedValor = Math.round(Number(valor) * 100) / 100;
+
+    try {
+      const oldRecord = db.prepare("SELECT valor, descricao FROM despesas WHERE id = ?").get(id) as any;
+      if (!oldRecord) return res.status(404).json({ error: "Despesa não encontrada" });
+
+      db.prepare("UPDATE despesas SET valor = ? WHERE id = ?").run(roundedValor, id);
+      
+      // Log the change
+      db.prepare(
+        "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id) VALUES (?, ?, ?, ?, ?, ?)"
+      ).run(new Date().toISOString(), `Alteração de valor: ${oldRecord.descricao}`, oldRecord.valor, roundedValor, 'Despesa', id);
+
+      res.json({ success: true, valor: roundedValor });
+    } catch (e) {
+      res.status(500).json({ error: "Erro ao atualizar valor da despesa." });
+    }
+  });
+
+  app.patch("/api/salarios/:id", (req, res) => {
+    const { id } = req.params;
+    const { valor } = req.body;
+    const roundedValor = Math.round(Number(valor) * 100) / 100;
+
+    try {
+      const oldRecord = db.prepare("SELECT valor, descricao FROM salarios WHERE id = ?").get(id) as any;
+      if (!oldRecord) return res.status(404).json({ error: "Salário não encontrado" });
+
+      db.prepare("UPDATE salarios SET valor = ? WHERE id = ?").run(roundedValor, id);
+
+      // Log the change
+      db.prepare(
+        "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id) VALUES (?, ?, ?, ?, ?, ?)"
+      ).run(new Date().toISOString(), `Alteração de valor: ${oldRecord.descricao}`, oldRecord.valor, roundedValor, 'Salário', id);
+
+      res.json({ success: true, valor: roundedValor });
+    } catch (e) {
+      res.status(500).json({ error: "Erro ao atualizar valor do salário." });
+    }
+  });
+
+  app.get("/api/logs", (req, res) => {
+    const data = db.prepare("SELECT * FROM logs ORDER BY timestamp DESC").all();
+    res.json(data);
   });
 
   app.delete("/api/pessoas/:id", (req, res) => {

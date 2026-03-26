@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Filter, Users, DollarSign, CreditCard, Tag, TrendingUp, ChevronDown, ChevronUp, ClipboardCheck, Trash2, Download, Upload, RotateCcw, Layers, Loader2, PieChart as PieChartIcon, BarChart as BarChartIcon, Check, ArrowUp, ArrowDown, X, Search, Pencil, RefreshCw, AlertTriangle } from 'lucide-react';
+import { Plus, Filter, Users, DollarSign, CreditCard, Tag, TrendingUp, ChevronDown, ChevronUp, ClipboardCheck, Trash2, Download, Upload, RotateCcw, Layers, Loader2, PieChart as PieChartIcon, BarChart as BarChartIcon, Check, X, Search, Pencil, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
@@ -766,7 +766,7 @@ CSV com colunas:
       const isValidDate = !isNaN(dateObj.getTime());
       
       // Get initial value from logs if available
-      const initialLog = initialLogsMap.get(`Salário-${s.id}`);
+      const initialLog = initialLogsMap.get(`Entrada-${s.id}`);
       const initialValor = initialLog ? initialLog.valor_novo : s.valor;
       
       return {
@@ -798,7 +798,7 @@ CSV com colunas:
     const deletedLogs = auditLogs.filter(l => {
       if (!l.descricao.includes('Lançamento inicial:')) return false;
       if (l.tipo === 'Despesa' && currentDespesaIds.has(Number(l.registro_id))) return false;
-      if (l.tipo === 'Salário' && currentSalarioIds.has(Number(l.registro_id))) return false;
+      if (l.tipo === 'Entrada' && currentSalarioIds.has(Number(l.registro_id))) return false;
       
       const dateStr = l.data_registro || l.timestamp.split('T')[0];
       return matchesFilters(dateStr);
@@ -828,7 +828,7 @@ CSV com colunas:
         monthNameShort: isValidDate ? format(dateObj, 'MMM', { locale: ptBR }) : '',
         year: isValidDate ? getYear(dateObj).toString() : '',
         descricao: cleanDesc + ' (Excluído)',
-        categoria: l.categoria_nome || (l.tipo === 'Salário' ? 'Entrada' : '-'),
+        categoria: l.categoria_nome || (l.tipo === 'Entrada' ? 'Entrada' : '-'),
         valor: l.valor_novo,
         originalValor: l.valor_novo,
         tipo: l.tipo === 'Despesa' ? 'Saída' : 'Entrada',

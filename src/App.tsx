@@ -278,6 +278,7 @@ CSV com colunas:
   const fetchData = async () => {
     setIsLoading(true);
     setLoadingMessage('Carregando dados...');
+    console.log('Iniciando fetchData...');
     try {
       const t = Date.now();
       const [p, c, d, s] = await Promise.all([
@@ -286,13 +287,16 @@ CSV com colunas:
         fetch(`/api/despesas?t=${t}`).then(res => res.json()),
         fetch(`/api/salarios?t=${t}`).then(res => res.json()),
       ]);
+      console.log('Dados básicos carregados:', { pessoas: p.length, categorias: c.length, despesas: d.length, salarios: s.length });
       setPessoas(p);
       setCategorias(c);
       setDespesas(d);
       setSalarios(s);
       const logs = await fetch(`/api/logs?t=${t}`).then(res => res.json());
+      console.log('Logs carregados:', logs.length);
       setAuditLogs(logs);
     } catch (err) {
+      console.error('Erro no fetchData:', err);
       setError('Erro ao carregar dados do servidor. Por favor, tente novamente.');
     } finally {
       setIsLoading(false);
@@ -782,11 +786,41 @@ CSV com colunas:
       };
     });
 
-    return [...mDespesas, ...mSalarios, ...mDeleted].sort((a, b) => {
+    // 3. Other activities (Pessoas and Categorias)
+    const mOther = auditLogs.filter(l => l.tipo === 'Pessoa' || l.tipo === 'Categoria').map(l => {
+      const dateStr = l.timestamp.split('T')[0];
+      const dateObj = parseISO(dateStr);
+      const isValidDate = !isNaN(dateObj.getTime());
+
+      return {
+        id: `${l.tipo === 'Pessoa' ? 'p' : 'c'}-${l.registro_id}`,
+        data: dateStr,
+        dateObj,
+        isValidDate,
+        formattedDate: isValidDate ? format(dateObj, 'dd/MM/yyyy') : dateStr,
+        month: isValidDate ? getMonth(dateObj) + 1 : 0,
+        monthName: isValidDate ? format(dateObj, 'MMMM', { locale: ptBR }) : '',
+        monthNameShort: isValidDate ? format(dateObj, 'MMM', { locale: ptBR }) : '',
+        year: isValidDate ? getYear(dateObj).toString() : '',
+        descricao: l.descricao,
+        categoria: l.tipo,
+        valor: 0,
+        originalValor: 0,
+        tipo: 'Atividade',
+        pessoa: l.tipo === 'Pessoa' ? l.descricao.replace('Nova Pessoa: ', '') : '-',
+        destino: '-',
+        dbId: l.registro_id,
+        raw: l
+      };
+    });
+
+    const finalResult = [...mDespesas, ...mSalarios, ...mDeleted, ...mOther].sort((a, b) => {
       const dateComp = b.data.localeCompare(a.data);
       if (dateComp !== 0) return dateComp;
       return Number(b.dbId) - Number(a.dbId);
     });
+    console.log('Total de movimentos no Log:', finalResult.length);
+    return finalResult;
   }, [despesas, salarios, auditLogs, pessoas]);
 
   const filteredMovements = useMemo(() => {
@@ -801,7 +835,10 @@ CSV com colunas:
       const myMatch = term.match(monthYearRegex);
       
       result = result.filter(m => {
-        const prefixedId = (m.id.startsWith('d-') ? 'S' : 'E') + m.dbId;
+        const prefix = m.id.startsWith('d-') ? 'S' : 
+                       m.id.startsWith('s-') ? 'E' : 
+                       m.id.startsWith('p-') ? 'P' : 'C';
+        const prefixedId = prefix + m.dbId;
         
         if (myMatch && m.isValidDate) {
           const searchMonth = parseInt(myMatch[1]);
@@ -866,7 +903,9 @@ CSV com colunas:
   const filteredAuditLogs = useMemo(() => {
     let result = auditLogs.filter(l => 
       !l.descricao.startsWith('Lançamento inicial:') && 
-      !l.descricao.startsWith('Exclusão:')
+      !l.descricao.startsWith('Exclusão:') &&
+      !l.descricao.startsWith('Nova Pessoa:') &&
+      !l.descricao.startsWith('Nova Categoria:')
     );
     
     if (logSearchTerm) {
@@ -1926,7 +1965,9 @@ CSV com colunas:
                   filteredMovements.map(m => (
                     <tr key={m.id} className="hover:bg-gray-50 transition-colors">
                       <td className="px-4 py-3 font-mono text-xs text-gray-500">
-                        {m.id.startsWith('d-') ? 'S' : 'E'}{m.dbId}
+                        {m.id.startsWith('d-') ? 'S' : 
+                         m.id.startsWith('s-') ? 'E' : 
+                         m.id.startsWith('p-') ? 'P' : 'C'}{m.dbId}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">{m.formattedDate}</td>
                       <td className="px-4 py-3">{m.descricao}</td>
@@ -1937,14 +1978,16 @@ CSV com colunas:
                       </td>
                       <td className={cn(
                         "px-4 py-3 font-medium whitespace-nowrap",
-                        m.tipo === 'Entrada' ? "text-emerald-600" : "text-rose-600"
+                        m.tipo === 'Entrada' ? "text-emerald-600" : 
+                        m.tipo === 'Saída' ? "text-rose-600" : "text-indigo-600"
                       )}>
-                        {formatCurrency(m.valor)}
+                        {m.valor > 0 || m.tipo !== 'Atividade' ? formatCurrency(m.valor) : '-'}
                       </td>
                       <td className="px-4 py-3">
                         <span className={cn(
                           "rounded-full px-2 py-1 text-xs font-medium",
-                          m.tipo === 'Entrada' ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"
+                          m.tipo === 'Entrada' ? "bg-emerald-100 text-emerald-700" : 
+                          m.tipo === 'Saída' ? "bg-rose-100 text-rose-700" : "bg-indigo-100 text-indigo-700"
                         )}>
                           {m.tipo}
                         </span>

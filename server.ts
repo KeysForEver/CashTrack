@@ -172,6 +172,13 @@ async function startServer() {
   app.post("/api/pessoas", (req, res) => {
     const { nome, cor } = req.body;
     const result = db.prepare("INSERT INTO pessoas (nome, cor) VALUES (?, ?)").run(nome, cor);
+    
+    // Log the creation
+    db.prepare(
+      "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, pessoa_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    ).run(new Date().toISOString(), `Nova Pessoa: ${nome}`, 0, 0, 'Pessoa', result.lastInsertRowid, result.lastInsertRowid);
+
+    console.log(`Pessoa adicionada: ${nome} (ID: ${result.lastInsertRowid})`);
     res.json({ id: result.lastInsertRowid, nome, cor });
   });
 
@@ -184,6 +191,13 @@ async function startServer() {
     const { nome } = req.body;
     try {
       const result = db.prepare("INSERT INTO categorias (nome) VALUES (?)").run(nome);
+      
+      // Log the creation
+      db.prepare(
+        "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, categoria_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      ).run(new Date().toISOString(), `Nova Categoria: ${nome}`, 0, 0, 'Categoria', result.lastInsertRowid, result.lastInsertRowid);
+
+      console.log(`Categoria adicionada: ${nome} (ID: ${result.lastInsertRowid})`);
       res.json({ id: result.lastInsertRowid, nome });
     } catch (e) {
       res.status(400).json({ error: "Categoria já existe" });
@@ -223,6 +237,7 @@ async function startServer() {
       "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, pessoa_id, data_registro, destino, categoria_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ).run(new Date().toISOString(), `Lançamento inicial: ${descricao || 'Despesa'}`, 0, roundedValor, 'Despesa', result.lastInsertRowid, origem_id, data, destino, categoria_id);
 
+    console.log(`Despesa adicionada: ${descricao} (ID: ${result.lastInsertRowid}, Valor: ${roundedValor})`);
     res.json({ id: result.lastInsertRowid, data, valor: roundedValor, descricao, origem_id, destino, categoria_id });
   });
 
@@ -258,6 +273,7 @@ async function startServer() {
       "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, pessoa_id, data_registro, destino) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ).run(new Date().toISOString(), `Lançamento inicial: ${descricao || 'Salário'}`, 0, roundedValor, 'Salário', result.lastInsertRowid, recebedor_id, data, 'Salário');
 
+    console.log(`Salário adicionado: ${descricao} (ID: ${result.lastInsertRowid}, Valor: ${roundedValor})`);
     res.json({ id: result.lastInsertRowid, data, valor: roundedValor, descricao, recebedor_id });
   });
 

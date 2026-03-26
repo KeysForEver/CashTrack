@@ -1138,7 +1138,7 @@ CSV com colunas:
       }
       setNewCategoria({ nome: '' });
       fetchData();
-      setToast({ message: 'Categoria adicionada com sucesso!', type: 'success' });
+      setToast('Categoria adicionada com sucesso!');
     } catch (err: any) {
       setError(err.message || 'Erro ao adicionar categoria.');
     }
@@ -1159,7 +1159,7 @@ CSV com colunas:
       }
       setEditingCategoria(null);
       fetchData();
-      setToast({ message: 'Categoria atualizada com sucesso!', type: 'success' });
+      setToast('Categoria atualizada com sucesso!');
     } catch (err: any) {
       setError(err.message || 'Erro ao atualizar categoria.');
     }
@@ -1178,7 +1178,7 @@ CSV com colunas:
       setIsDeleteCategoriaModalOpen(false);
       setCategoriaToDelete(null);
       fetchData();
-      setToast({ message: 'Categoria excluída com sucesso!', type: 'success' });
+      setToast('Categoria excluída com sucesso!');
     } catch (err: any) {
       setError(err.message || 'Erro ao excluir categoria.');
     }

@@ -330,6 +330,13 @@ CSV com colunas:
 
   const handleUpdateValue = async () => {
     if (!editingRecord) return;
+    
+    const valorNum = parseFloat(editingRecord.value);
+    if (isNaN(valorNum)) {
+      setError('Por favor, insira um valor numérico válido.');
+      return;
+    }
+
     setIsLoading(true);
     try {
       const id = editingRecord.id.split('-')[1];
@@ -337,7 +344,7 @@ CSV com colunas:
       const res = await fetch(endpoint, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ valor: editingRecord.value })
+        body: JSON.stringify({ valor: valorNum })
       });
       if (!res.ok) throw new Error('Erro ao atualizar valor');
       
@@ -669,13 +676,29 @@ CSV com colunas:
     // Pre-index auditLogs for faster lookup of initial values
     const initialLogsMap = new Map();
     auditLogs.forEach(l => {
-      if (l.descricao.startsWith('Lançamento inicial:')) {
+      if (l.descricao.includes('Lançamento inicial:')) {
         initialLogsMap.set(`${l.tipo}-${l.registro_id}`, l);
       }
     });
 
-    // 1. Current records from despesas and salarios
-    const mDespesas = despesas.map(d => {
+    // Helper to check if a date string matches current dashboard filters
+    const matchesFilters = (dateStr: string) => {
+      const dDate = parseISO(dateStr);
+      if (isNaN(dDate.getTime())) return false;
+      
+      if (startDate && endDate) {
+        const start = startOfDay(parseISO(startDate));
+        const end = endOfDay(parseISO(endDate));
+        return isWithinInterval(dDate, { start, end });
+      }
+      
+      const m = getMonth(dDate) + 1;
+      const y = getYear(dDate).toString();
+      return m === filterMonth && y === filterYear;
+    };
+
+    // 1. Current records from despesas and salarios (using raw despesas/salarios but applying same filtering logic)
+    const mDespesas = despesas.filter(d => matchesFilters(d.data)).map(d => {
       let destinoLabel = d.destino;
       if (d.destino !== 'Dividir') {
         const p = pessoas.find(p => Number(p.id) === Number(d.destino));
@@ -700,7 +723,7 @@ CSV com colunas:
         year: isValidDate ? getYear(dateObj).toString() : '',
         descricao: d.descricao || 'Despesa',
         categoria: d.categoria_nome || '-',
-        valor: d.valor, // Use current value for the log table
+        valor: d.valor, 
         originalValor: initialValor,
         tipo: 'Saída',
         pessoa: d.origem_nome || '-',
@@ -710,7 +733,7 @@ CSV com colunas:
       };
     });
 
-    const mSalarios = salarios.map(s => {
+    const mSalarios = salarios.filter(s => matchesFilters(s.data)).map(s => {
       const dateObj = parseISO(s.data);
       const isValidDate = !isNaN(dateObj.getTime());
       
@@ -730,7 +753,7 @@ CSV com colunas:
         year: isValidDate ? getYear(dateObj).toString() : '',
         descricao: s.descricao || 'Salário',
         categoria: 'Salário',
-        valor: s.valor, // Use current value for the log table
+        valor: s.valor, 
         originalValor: initialValor,
         tipo: 'Entrada',
         pessoa: '-',
@@ -740,15 +763,17 @@ CSV com colunas:
       };
     });
 
-    // 2. Deleted records from logs (Lançamento inicial for records that don't exist in current state)
+    // 2. Deleted records from logs
     const currentDespesaIds = new Set(despesas.map(d => Number(d.id)));
     const currentSalarioIds = new Set(salarios.map(s => Number(s.id)));
 
     const deletedLogs = auditLogs.filter(l => {
-      if (!l.descricao.startsWith('Lançamento inicial:')) return false;
+      if (!l.descricao.includes('Lançamento inicial:')) return false;
       if (l.tipo === 'Despesa' && currentDespesaIds.has(Number(l.registro_id))) return false;
       if (l.tipo === 'Salário' && currentSalarioIds.has(Number(l.registro_id))) return false;
-      return true;
+      
+      const dateStr = l.data_registro || l.timestamp.split('T')[0];
+      return matchesFilters(dateStr);
     });
 
     const mDeleted = deletedLogs.map(l => {
@@ -762,7 +787,7 @@ CSV com colunas:
         if (p) destinoLabel = p.nome;
       }
 
-      const cleanDesc = l.descricao.replace('Lançamento inicial: ', '');
+      const cleanDesc = l.descricao.split('Lançamento inicial: ')[1] || l.descricao;
 
       return {
         id: `${l.tipo === 'Despesa' ? 'd' : 's'}-${l.registro_id}`,
@@ -787,7 +812,11 @@ CSV com colunas:
     });
 
     // 3. Other activities (Pessoas and Categorias)
-    const mOther = auditLogs.filter(l => l.tipo === 'Pessoa' || l.tipo === 'Categoria').map(l => {
+    const mOther = auditLogs.filter(l => {
+      if (l.tipo !== 'Pessoa' && l.tipo !== 'Categoria') return false;
+      const dateStr = l.timestamp.split('T')[0];
+      return matchesFilters(dateStr);
+    }).map(l => {
       const dateStr = l.timestamp.split('T')[0];
       const dateObj = parseISO(dateStr);
       const isValidDate = !isNaN(dateObj.getTime());
@@ -819,9 +848,17 @@ CSV com colunas:
       if (dateComp !== 0) return dateComp;
       return Number(b.dbId) - Number(a.dbId);
     });
-    console.log('Total de movimentos no Log:', finalResult.length);
+    
+    console.log('Log de Atividades atualizado:', {
+      total: finalResult.length,
+      despesas: mDespesas.length,
+      salarios: mSalarios.length,
+      excluidos: mDeleted.length,
+      outros: mOther.length
+    });
+    
     return finalResult;
-  }, [despesas, salarios, auditLogs, pessoas]);
+  }, [despesas, salarios, auditLogs, pessoas, filterMonth, filterYear, startDate, endDate]);
 
   const filteredMovements = useMemo(() => {
     let result = [...allMovements];
@@ -881,19 +918,6 @@ CSV com colunas:
         }
         
         return logSort.direction === 'asc' ? comparison : -comparison;
-      });
-    } else {
-      // Default sort by date descending then ID descending
-      result.sort((a, b) => {
-        const dateA = new Date(a.data).getTime();
-        const dateB = new Date(b.data).getTime();
-        if (dateA !== dateB) {
-          if (isNaN(dateA) && isNaN(dateB)) return 0;
-          if (isNaN(dateA)) return 1;
-          if (isNaN(dateB)) return -1;
-          return dateB - dateA;
-        }
-        return Number(b.dbId) - Number(a.dbId);
       });
     }
 
@@ -977,24 +1001,43 @@ CSV com colunas:
 
   const handleAddDespesa = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    const valorNum = parseFloat(newDespesa.valor);
+    const origemIdNum = parseInt(newDespesa.origem_id);
+    const categoriaIdNum = parseInt(newDespesa.categoria_id);
+
+    if (isNaN(valorNum) || isNaN(origemIdNum) || isNaN(categoriaIdNum)) {
+      setError('Por favor, preencha todos os campos obrigatórios com valores válidos.');
+      return;
+    }
+
     try {
       const res = await fetch('/api/despesas', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           ...newDespesa, 
-          valor: parseFloat(newDespesa.valor), 
-          origem_id: parseInt(newDespesa.origem_id), 
-          categoria_id: parseInt(newDespesa.categoria_id) 
+          valor: valorNum, 
+          origem_id: origemIdNum, 
+          categoria_id: categoriaIdNum 
         }),
       });
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.error || 'Falha ao salvar despesa');
       }
-      setNewDespesa({ data: format(new Date(), 'yyyy-MM-dd'), valor: '', descricao: '', origem_id: '', destino: 'Dividir', categoria_id: '' });
+      // Reset all fields
+      setNewDespesa({ 
+        data: format(new Date(), 'yyyy-MM-dd'), 
+        valor: '', 
+        descricao: '', 
+        origem_id: '', 
+        destino: 'Dividir', 
+        categoria_id: '' 
+      });
       setIsDespesaModalOpen(false);
       fetchData();
+      setToast('Despesa adicionada com sucesso!');
     } catch (err: any) {
       setError(err.message || 'Erro ao adicionar despesa. Verifique os campos obrigatórios.');
     }
@@ -1002,23 +1045,39 @@ CSV com colunas:
 
   const handleAddSalario = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    const valorNum = parseFloat(newSalario.valor);
+    const recebedorIdNum = parseInt(newSalario.recebedor_id);
+
+    if (isNaN(valorNum) || isNaN(recebedorIdNum)) {
+      setError('Por favor, preencha todos os campos obrigatórios com valores válidos.');
+      return;
+    }
+
     try {
       const res = await fetch('/api/salarios', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           ...newSalario, 
-          valor: parseFloat(newSalario.valor), 
-          recebedor_id: parseInt(newSalario.recebedor_id) 
+          valor: valorNum, 
+          recebedor_id: recebedorIdNum 
         }),
       });
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.error || 'Falha ao salvar salário');
       }
-      setNewSalario({ data: format(new Date(), 'yyyy-MM-dd'), valor: '', descricao: '', recebedor_id: '' });
+      // Reset all fields
+      setNewSalario({ 
+        data: format(new Date(), 'yyyy-MM-dd'), 
+        valor: '', 
+        descricao: '', 
+        recebedor_id: '' 
+      });
       setIsSalarioModalOpen(false);
       fetchData();
+      setToast('Entrada adicionada com sucesso!');
     } catch (err: any) {
       setError(err.message || 'Erro ao adicionar salário. Verifique os campos.');
     }

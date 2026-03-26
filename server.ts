@@ -216,6 +216,11 @@ async function startServer() {
 
   app.post("/api/despesas", (req, res) => {
     const { data, valor, descricao, origem_id, destino, categoria_id } = req.body;
+    
+    if (!data || isNaN(Number(valor)) || !origem_id || !categoria_id) {
+      return res.status(400).json({ error: "Dados incompletos ou inválidos (valor, origem ou categoria)." });
+    }
+
     const roundedValor = Math.round(Number(valor) * 100) / 100;
     
     // Check for duplicate
@@ -235,7 +240,7 @@ async function startServer() {
     // Log the creation
     db.prepare(
       "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, pessoa_id, data_registro, destino, categoria_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-    ).run(new Date().toISOString(), `Lançamento inicial: ${descricao || 'Despesa'}`, 0, roundedValor, 'Despesa', result.lastInsertRowid, origem_id, data, destino, categoria_id);
+    ).run(new Date().toISOString(), `Lançamento inicial: Saída S${result.lastInsertRowid} - ${descricao || 'Despesa'}`, 0, roundedValor, 'Despesa', result.lastInsertRowid, origem_id, data, destino, categoria_id);
 
     console.log(`Despesa adicionada: ${descricao} (ID: ${result.lastInsertRowid}, Valor: ${roundedValor})`);
     res.json({ id: result.lastInsertRowid, data, valor: roundedValor, descricao, origem_id, destino, categoria_id });
@@ -252,6 +257,11 @@ async function startServer() {
 
   app.post("/api/salarios", (req, res) => {
     const { data, valor, descricao, recebedor_id } = req.body;
+    
+    if (!data || isNaN(Number(valor)) || !recebedor_id) {
+      return res.status(400).json({ error: "Dados incompletos ou inválidos (valor ou recebedor)." });
+    }
+
     const roundedValor = Math.round(Number(valor) * 100) / 100;
 
     // Check for duplicate
@@ -271,7 +281,7 @@ async function startServer() {
     // Log the creation
     db.prepare(
       "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, pessoa_id, data_registro, destino) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
-    ).run(new Date().toISOString(), `Lançamento inicial: ${descricao || 'Salário'}`, 0, roundedValor, 'Salário', result.lastInsertRowid, recebedor_id, data, 'Salário');
+    ).run(new Date().toISOString(), `Lançamento inicial: Entrada E${result.lastInsertRowid} - ${descricao || 'Salário'}`, 0, roundedValor, 'Salário', result.lastInsertRowid, recebedor_id, data, 'Salário');
 
     console.log(`Salário adicionado: ${descricao} (ID: ${result.lastInsertRowid}, Valor: ${roundedValor})`);
     res.json({ id: result.lastInsertRowid, data, valor: roundedValor, descricao, recebedor_id });
@@ -280,6 +290,11 @@ async function startServer() {
   app.patch("/api/despesas/:id", (req, res) => {
     const { id } = req.params;
     const { valor } = req.body;
+
+    if (isNaN(Number(valor))) {
+      return res.status(400).json({ error: "Valor inválido." });
+    }
+
     const roundedValor = Math.round(Number(valor) * 100) / 100;
 
     try {
@@ -291,7 +306,7 @@ async function startServer() {
       // Log the change
       db.prepare(
         "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, pessoa_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
-      ).run(new Date().toISOString(), `Alteração de valor: ${oldRecord.descricao}`, oldRecord.valor, roundedValor, 'Despesa', id, oldRecord.origem_id);
+      ).run(new Date().toISOString(), `Alteração de valor: Saída S${id} - ${oldRecord.descricao}`, oldRecord.valor, roundedValor, 'Despesa', id, oldRecord.origem_id);
 
       res.json({ success: true, valor: roundedValor });
     } catch (e) {
@@ -302,6 +317,11 @@ async function startServer() {
   app.patch("/api/salarios/:id", (req, res) => {
     const { id } = req.params;
     const { valor } = req.body;
+
+    if (isNaN(Number(valor))) {
+      return res.status(400).json({ error: "Valor inválido." });
+    }
+
     const roundedValor = Math.round(Number(valor) * 100) / 100;
 
     try {

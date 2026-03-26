@@ -157,6 +157,13 @@ async function startServer() {
   });
 
   // API Routes
+  app.use("/api", (req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    next();
+  });
+
   app.get("/api/pessoas", (req, res) => {
     const data = db.prepare("SELECT * FROM pessoas").all();
     res.json(data);

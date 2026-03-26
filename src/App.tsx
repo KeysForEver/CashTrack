@@ -662,6 +662,14 @@ CSV com colunas:
   }, [categorias, filteredDespesas]);
 
   const allMovements = useMemo(() => {
+    // Pre-index auditLogs for faster lookup of initial values
+    const initialLogsMap = new Map();
+    auditLogs.forEach(l => {
+      if (l.descricao.startsWith('Lançamento inicial:')) {
+        initialLogsMap.set(`${l.tipo}-${l.registro_id}`, l);
+      }
+    });
+
     // 1. Current records from despesas and salarios
     const mDespesas = despesas.map(d => {
       let destinoLabel = d.destino;
@@ -673,8 +681,7 @@ CSV com colunas:
       const isValidDate = !isNaN(dateObj.getTime());
       
       // Get initial value from logs if available
-      const logs = auditLogs.filter(l => Number(l.registro_id) === Number(d.id) && l.tipo === 'Despesa');
-      const initialLog = logs.find(l => l.descricao.startsWith('Lançamento inicial:'));
+      const initialLog = initialLogsMap.get(`Despesa-${d.id}`);
       const initialValor = initialLog ? initialLog.valor_novo : d.valor;
       
       return {
@@ -704,8 +711,7 @@ CSV com colunas:
       const isValidDate = !isNaN(dateObj.getTime());
       
       // Get initial value from logs if available
-      const logs = auditLogs.filter(l => Number(l.registro_id) === Number(s.id) && l.tipo === 'Salário');
-      const initialLog = logs.find(l => l.descricao.startsWith('Lançamento inicial:'));
+      const initialLog = initialLogsMap.get(`Salário-${s.id}`);
       const initialValor = initialLog ? initialLog.valor_novo : s.valor;
       
       return {
@@ -776,7 +782,11 @@ CSV com colunas:
       };
     });
 
-    return [...mDespesas, ...mSalarios, ...mDeleted].sort((a, b) => b.data.localeCompare(a.data));
+    return [...mDespesas, ...mSalarios, ...mDeleted].sort((a, b) => {
+      const dateComp = b.data.localeCompare(a.data);
+      if (dateComp !== 0) return dateComp;
+      return Number(b.dbId) - Number(a.dbId);
+    });
   }, [despesas, salarios, auditLogs, pessoas]);
 
   const filteredMovements = useMemo(() => {
@@ -836,14 +846,17 @@ CSV com colunas:
         return logSort.direction === 'asc' ? comparison : -comparison;
       });
     } else {
-      // Default sort by date descending
+      // Default sort by date descending then ID descending
       result.sort((a, b) => {
         const dateA = new Date(a.data).getTime();
         const dateB = new Date(b.data).getTime();
-        if (isNaN(dateA) && isNaN(dateB)) return 0;
-        if (isNaN(dateA)) return 1;
-        if (isNaN(dateB)) return -1;
-        return dateB - dateA;
+        if (dateA !== dateB) {
+          if (isNaN(dateA) && isNaN(dateB)) return 0;
+          if (isNaN(dateA)) return 1;
+          if (isNaN(dateB)) return -1;
+          return dateB - dateA;
+        }
+        return Number(b.dbId) - Number(a.dbId);
       });
     }
 

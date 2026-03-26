@@ -138,6 +138,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [editingRecord, setEditingRecord] = useState<{ id: string; type: 'Entrada' | 'Saída'; value: string } | null>(null);
+  const [personSearchTerm, setPersonSearchTerm] = useState('');
 
   useEffect(() => {
     if (toast) {
@@ -538,7 +539,7 @@ CSV com colunas:
     const pDespesas = filteredDespesas.filter(d => d.origem_id === selectedPersonId);
     const pSalarios = filteredSalarios.filter(s => s.recebedor_id === selectedPersonId);
 
-    const movements = [
+    let movements = [
       ...pDespesas.map(d => {
         const dateObj = parseISO(d.data);
         const isValidDate = !isNaN(dateObj.getTime());
@@ -563,6 +564,18 @@ CSV com colunas:
       })
     ].sort((a, b) => b.displayData.localeCompare(a.displayData));
 
+    if (personSearchTerm) {
+      const normalize = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const term = normalize(personSearchTerm).trim();
+      movements = movements.filter(m => 
+        normalize(m.descricao).includes(term) ||
+        (m.categoria_nome && normalize(m.categoria_nome).includes(term)) ||
+        m.valor.toString().includes(term) ||
+        m.formattedDate.includes(term) ||
+        normalize(m.tipo).includes(term)
+      );
+    }
+
     const totalSpent = pDespesas.reduce((sum, d) => sum + d.valor, 0);
     const exclusiveSpent = pDespesas.filter(d => d.destino !== 'Dividir').reduce((sum, d) => sum + d.valor, 0);
     const sharedSpent = pDespesas.filter(d => d.destino === 'Dividir').reduce((sum, d) => sum + d.valor, 0);
@@ -577,7 +590,7 @@ CSV com colunas:
       totalSalary,
       net: totalSalary - totalSpent
     };
-  }, [selectedPersonId, pessoas, filteredDespesas, filteredSalarios]);
+  }, [selectedPersonId, pessoas, filteredDespesas, filteredSalarios, personSearchTerm]);
 
   const barChartData = useMemo(() => {
     const items = [...filteredDespesas, ...filteredSalarios];
@@ -1736,145 +1749,6 @@ CSV com colunas:
               )}
             </AnimatePresence>
           </div>
-
-          <div className="mt-8 flex flex-col shrink-0 min-h-0">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-                <TrendingUp size={20} className="text-indigo-600" />
-                Movimentações Detalhadas
-              </h2>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={fetchData}
-                  disabled={isLoading}
-                  className="p-2 rounded-xl bg-white shadow-soft border-soft text-amber-600 hover:bg-amber-50 transition-all active:scale-95 disabled:opacity-50"
-                  title="Atualizar dados"
-                >
-                  <RefreshCw size={18} className={isLoading ? 'animate-spin' : ''} />
-                </button>
-                <button
-                  onClick={() => handleExportLog({ format: 'xlsx', filename: 'Movimentacoes', columns: ['date', 'description', 'category', 'value', 'type', 'person', 'destination'] })}
-                  className="p-2 rounded-xl bg-white shadow-soft border-soft text-indigo-600 hover:bg-indigo-50 transition-all active:scale-95"
-                  title="Exportar Excel"
-                >
-                  <Download size={18} />
-                </button>
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-gray-200 bg-white shadow-soft overflow-hidden flex flex-col max-h-[400px]">
-              <div className="overflow-auto custom-scrollbar">
-                <table className="w-full text-left text-sm">
-                  <thead className="sticky top-0 bg-gray-50 text-gray-600 z-10">
-                    <tr>
-                      <LogTableHeader label="ID" columnKey="dbId" />
-                      <LogTableHeader label="Data" columnKey="formattedDate" />
-                      <LogTableHeader label="Descrição" columnKey="descricao" />
-                      <LogTableHeader label="Categoria" columnKey="categoria" />
-                      <LogTableHeader label="Valor" columnKey="valor" />
-                      <LogTableHeader label="Tipo" columnKey="tipo" />
-                      <LogTableHeader label="Pessoa" columnKey="pessoa" />
-                      <LogTableHeader label="Destino" columnKey="destino" />
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50 bg-white">
-                    {filteredMovements.length > 0 ? (
-                      filteredMovements.map(m => (
-                        <tr key={m.id} className="hover:bg-gray-50 transition-colors">
-                          <td className="px-4 py-3 font-mono text-xs text-gray-500">
-                            {m.id.startsWith('d-') ? 'S' : 
-                             m.id.startsWith('s-') ? 'E' : 
-                             m.id.startsWith('p-') ? 'P' : 'C'}{m.dbId}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">{m.formattedDate}</td>
-                          <td className="px-4 py-3">{m.descricao}</td>
-                          <td className="px-4 py-3">
-                            <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-600">
-                              {m.categoria}
-                            </span>
-                          </td>
-                          <td className={cn(
-                            "px-4 py-3 font-medium whitespace-nowrap",
-                            m.tipo === 'Entrada' ? "text-emerald-600" : 
-                            m.tipo === 'Saída' ? "text-rose-600" : "text-indigo-600"
-                          )}>
-                            {m.valor > 0 || m.tipo !== 'Atividade' ? formatCurrency(m.valor) : '-'}
-                          </td>
-                          <td className="px-4 py-3">
-                            <span className={cn(
-                              "rounded-full px-2 py-1 text-xs font-medium",
-                              m.tipo === 'Entrada' ? "bg-emerald-100 text-emerald-700" : 
-                              m.tipo === 'Saída' ? "bg-rose-100 text-rose-700" : "bg-indigo-100 text-indigo-700"
-                            )}>
-                              {m.tipo}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">{m.pessoa}</td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <span className="text-gray-500 italic">{m.destino}</span>
-                          </td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan={8} className="px-4 py-8 text-center text-gray-500 italic">
-                          Nenhuma movimentação encontrada.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {filteredAuditLogs.length > 0 && (
-              <div className="mt-6 space-y-4 mb-4">
-                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
-                  <div className="w-1 h-3 bg-amber-500 rounded-full" />
-                  Histórico de Alterações Recentes
-                </h3>
-                <div className="rounded-2xl border border-gray-200 bg-white shadow-soft overflow-hidden">
-                  <table className="w-full text-left text-sm">
-                    <thead className="bg-gray-50 text-gray-600">
-                      <tr>
-                        <th className="px-4 py-2 font-semibold">Data/Hora</th>
-                        <th className="px-4 py-2 font-semibold">ID</th>
-                        <th className="px-4 py-2 font-semibold">Tipo</th>
-                        <th className="px-4 py-2 font-semibold">Pessoa</th>
-                        <th className="px-4 py-2 font-semibold">Registro</th>
-                        <th className="px-4 py-2 font-semibold">De</th>
-                        <th className="px-4 py-2 font-semibold">Para</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-50 bg-white">
-                      {filteredAuditLogs.slice(0, 10).map(log => (
-                        <tr key={log.id} className="text-xs">
-                          <td className="px-4 py-2 text-gray-500">
-                            {format(parseISO(log.timestamp), 'dd/MM/yy HH:mm')}
-                          </td>
-                          <td className="px-4 py-2 font-mono text-[10px] text-gray-400">
-                            {log.tipo === 'Salário' ? 'E' : 'S'}{log.registro_id}
-                          </td>
-                          <td className="px-4 py-2">
-                            <span className={cn(
-                              "rounded-full px-2 py-0.5 text-[10px] font-medium",
-                              log.tipo === 'Salário' ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"
-                            )}>
-                              {log.tipo}
-                            </span>
-                          </td>
-                          <td className="px-4 py-2 text-gray-600">{log.pessoa_nome || '-'}</td>
-                          <td className="px-4 py-2 font-medium">{log.descricao}</td>
-                          <td className="px-4 py-2 text-rose-600">{formatCurrency(log.valor_antigo)}</td>
-                          <td className="px-4 py-2 text-emerald-600">{formatCurrency(log.valor_novo)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-          </div>
         </div>
       )}
 
@@ -2108,8 +1982,10 @@ CSV com colunas:
         onClose={() => {
           setIsPersonDetailModalOpen(false);
           setSelectedPersonId(null);
+          setPersonSearchTerm('');
         }} 
         title={`Resumo: ${selectedPersonDetails?.person.nome || ''}`}
+        className="sm:w-[90%] sm:h-[90%] max-w-none"
       >
         {selectedPersonDetails && (
           <div className="space-y-6">
@@ -2169,8 +2045,19 @@ CSV com colunas:
               </div>
             </div>
 
-            <div className="rounded-xl border border-gray-100 overflow-hidden">
-              <div className="max-h-[400px] overflow-y-auto">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+              <input 
+                type="text" 
+                placeholder="Pesquisar movimentações..."
+                value={personSearchTerm}
+                onChange={(e) => setPersonSearchTerm(e.target.value)}
+                className="w-full rounded-xl border-gray-200 bg-gray-50 py-3 pl-10 pr-4 outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+
+            <div className="rounded-xl border border-gray-100 overflow-hidden flex-1">
+              <div className="max-h-[60vh] overflow-y-auto custom-scrollbar">
                 <table className="w-full text-left text-sm">
                   <thead className="sticky top-0 bg-gray-100 text-gray-600 z-10">
                     <tr>

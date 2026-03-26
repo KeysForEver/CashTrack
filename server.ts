@@ -204,6 +204,48 @@ async function startServer() {
     }
   });
 
+  app.put("/api/categorias/:id", (req, res) => {
+    const { id } = req.params;
+    const { nome } = req.body;
+    try {
+      const old = db.prepare("SELECT * FROM categorias WHERE id = ?").get(id);
+      db.prepare("UPDATE categorias SET nome = ? WHERE id = ?").run(nome, id);
+      
+      // Log the update
+      db.prepare(
+        "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, categoria_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      ).run(new Date().toISOString(), `Categoria Alterada: ${old.nome} -> ${nome}`, 0, 0, 'Categoria', id, id);
+
+      res.json({ id, nome });
+    } catch (e) {
+      res.status(400).json({ error: "Erro ao atualizar categoria" });
+    }
+  });
+
+  app.delete("/api/categorias/:id", (req, res) => {
+    const { id } = req.params;
+    try {
+      const old = db.prepare("SELECT * FROM categorias WHERE id = ?").get(id);
+      
+      // Check if there are expenses using this category
+      const count = db.prepare("SELECT COUNT(*) as count FROM despesas WHERE categoria_id = ?").get(id).count;
+      if (count > 0) {
+        return res.status(400).json({ error: "Não é possível excluir uma categoria que possui despesas vinculadas" });
+      }
+
+      db.prepare("DELETE FROM categorias WHERE id = ?").run(id);
+      
+      // Log the deletion
+      db.prepare(
+        "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, categoria_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      ).run(new Date().toISOString(), `Categoria Excluída: ${old.nome}`, 0, 0, 'Categoria', id, id);
+
+      res.json({ success: true });
+    } catch (e) {
+      res.status(400).json({ error: "Erro ao excluir categoria" });
+    }
+  });
+
   app.get("/api/despesas", (req, res) => {
     const data = db.prepare(`
       SELECT d.*, p.nome as origem_nome, c.nome as categoria_nome 
@@ -281,9 +323,9 @@ async function startServer() {
     // Log the creation
     db.prepare(
       "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, pessoa_id, data_registro, destino) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
-    ).run(new Date().toISOString(), `Lançamento inicial: Entrada E${result.lastInsertRowid} - ${descricao || 'Salário'}`, 0, roundedValor, 'Salário', result.lastInsertRowid, recebedor_id, data, 'Salário');
+    ).run(new Date().toISOString(), `Lançamento inicial: Entrada E${result.lastInsertRowid} - ${descricao || 'Entrada'}`, 0, roundedValor, 'Salário', result.lastInsertRowid, recebedor_id, data, 'Salário');
 
-    console.log(`Salário adicionado: ${descricao} (ID: ${result.lastInsertRowid}, Valor: ${roundedValor})`);
+    console.log(`Entrada adicionada: ${descricao} (ID: ${result.lastInsertRowid}, Valor: ${roundedValor})`);
     res.json({ id: result.lastInsertRowid, data, valor: roundedValor, descricao, recebedor_id });
   });
 
@@ -326,7 +368,7 @@ async function startServer() {
 
     try {
       const oldRecord = db.prepare("SELECT valor, descricao, recebedor_id FROM salarios WHERE id = ?").get(id) as any;
-      if (!oldRecord) return res.status(404).json({ error: "Salário não encontrado" });
+      if (!oldRecord) return res.status(404).json({ error: "Entrada não encontrada" });
 
       db.prepare("UPDATE salarios SET valor = ? WHERE id = ?").run(roundedValor, id);
 
@@ -337,7 +379,7 @@ async function startServer() {
 
       res.json({ success: true, valor: roundedValor });
     } catch (e) {
-      res.status(500).json({ error: "Erro ao atualizar valor do salário." });
+      res.status(500).json({ error: "Erro ao atualizar valor da entrada." });
     }
   });
 
@@ -364,7 +406,7 @@ async function startServer() {
     const { id } = req.params;
     try {
       const oldRecord = db.prepare("SELECT valor, descricao, recebedor_id FROM salarios WHERE id = ?").get(id) as any;
-      if (!oldRecord) return res.status(404).json({ error: "Salário não encontrado" });
+      if (!oldRecord) return res.status(404).json({ error: "Entrada não encontrada" });
 
       db.prepare("DELETE FROM salarios WHERE id = ?").run(id);
 
@@ -375,7 +417,7 @@ async function startServer() {
 
       res.json({ success: true });
     } catch (e) {
-      res.status(500).json({ error: "Erro ao excluir salário." });
+      res.status(500).json({ error: "Erro ao excluir entrada." });
     }
   });
 

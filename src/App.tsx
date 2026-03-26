@@ -288,7 +288,6 @@ CSV com colunas:
   const fetchData = async () => {
     setIsLoading(true);
     setLoadingMessage('Carregando dados...');
-    console.log('Iniciando fetchData...');
     try {
       const t = Date.now();
       const [p, c, d, s] = await Promise.all([
@@ -297,13 +296,11 @@ CSV com colunas:
         fetch(`/api/despesas?t=${t}`).then(res => res.json()),
         fetch(`/api/salarios?t=${t}`).then(res => res.json()),
       ]);
-      console.log('Dados básicos carregados:', { pessoas: p.length, categorias: c.length, despesas: d.length, salarios: s.length });
       setPessoas(p);
       setCategorias(c);
       setDespesas(d);
       setSalarios(s);
       const logs = await fetch(`/api/logs?t=${t}`).then(res => res.json());
-      console.log('Logs carregados:', logs.length);
       setAuditLogs(logs);
     } catch (err) {
       console.error('Erro no fetchData:', err);
@@ -878,14 +875,6 @@ CSV com colunas:
       const dateComp = b.data.localeCompare(a.data);
       if (dateComp !== 0) return dateComp;
       return Number(b.dbId) - Number(a.dbId);
-    });
-    
-    console.log('Log de Atividades atualizado:', {
-      total: finalResult.length,
-      despesas: mDespesas.length,
-      salarios: mSalarios.length,
-      excluidos: mDeleted.length,
-      outros: mOther.length
     });
     
     return finalResult;
@@ -1487,7 +1476,7 @@ CSV com colunas:
             <div className="bg-indigo-600 p-2 rounded-xl text-white">
               <DollarSign size={24} />
             </div>
-            <h1 className="text-xl font-bold text-gray-800 tracking-tight">CashTrack</h1>
+            <h1 className="text-xl font-bold text-gray-800 tracking-tight">WithLove4Janis</h1>
           </div>
           
           <nav className="space-y-1">
@@ -1554,19 +1543,6 @@ CSV com colunas:
         <div className="max-w-6xl mx-auto w-full flex flex-col h-full">
           <header className="mb-6 relative flex items-center justify-center min-h-[48px] shrink-0">
             <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-white p-2 px-4 shadow-soft border-soft">
-              <div className="flex items-center gap-2 flex-1 min-w-[200px]">
-                <Search className="text-gray-400" size={18} />
-                <input 
-                  type="text" 
-                  placeholder="Pesquisar em qualquer coluna..."
-                  value={logSearchTerm}
-                  onChange={(e) => setLogSearchTerm(e.target.value)}
-                  className="w-full rounded-lg border-none bg-transparent px-2 py-1 outline-none text-sm font-medium text-gray-700 focus:ring-0"
-                />
-              </div>
-
-              <div className="w-px h-6 bg-gray-200 hidden md:block"></div>
-
               <div className="flex items-center gap-2">
                 <Filter className="text-gray-400" size={18} />
                 <select 

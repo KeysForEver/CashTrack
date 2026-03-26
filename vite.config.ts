@@ -19,7 +19,7 @@ export default defineConfig(({mode}) => {
       port: 3000,
       host: '0.0.0.0',
       allowedHosts: [
-        "weaklier-jerrold-disintegratory.ngrok-free.dev"
+        "postpuerperal-superzealous-alayah.ngrok-free.dev"
       ],
       hmr: process.env.DISABLE_HMR !== 'true',
     },

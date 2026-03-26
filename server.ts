@@ -333,7 +333,7 @@ async function startServer() {
       // Log the change
       db.prepare(
         "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, pessoa_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
-      ).run(new Date().toISOString(), `Alteração de valor: ${oldRecord.descricao}`, oldRecord.valor, roundedValor, 'Salário', id, oldRecord.recebedor_id);
+      ).run(new Date().toISOString(), `Alteração de valor: Entrada E${id} - ${oldRecord.descricao}`, oldRecord.valor, roundedValor, 'Salário', id, oldRecord.recebedor_id);
 
       res.json({ success: true, valor: roundedValor });
     } catch (e) {
@@ -352,7 +352,7 @@ async function startServer() {
       // Log the deletion
       db.prepare(
         "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, pessoa_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
-      ).run(new Date().toISOString(), `Exclusão: ${oldRecord.descricao}`, oldRecord.valor, 0, 'Despesa', id, oldRecord.origem_id);
+      ).run(new Date().toISOString(), `Exclusão: Saída S${id} - ${oldRecord.descricao}`, oldRecord.valor, 0, 'Despesa', id, oldRecord.origem_id);
 
       res.json({ success: true });
     } catch (e) {
@@ -371,7 +371,7 @@ async function startServer() {
       // Log the deletion
       db.prepare(
         "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, pessoa_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
-      ).run(new Date().toISOString(), `Exclusão: ${oldRecord.descricao}`, oldRecord.valor, 0, 'Salário', id, oldRecord.recebedor_id);
+      ).run(new Date().toISOString(), `Exclusão: Entrada E${id} - ${oldRecord.descricao}`, oldRecord.valor, 0, 'Salário', id, oldRecord.recebedor_id);
 
       res.json({ success: true });
     } catch (e) {

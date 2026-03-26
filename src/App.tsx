@@ -7,7 +7,8 @@ import {
 } from 'recharts';
 import { 
   format, parseISO, getMonth, getYear, startOfMonth, endOfMonth, eachDayOfInterval,
-  differenceInDays, eachMonthOfInterval, eachYearOfInterval, isSameMonth, isSameYear
+  differenceInDays, eachMonthOfInterval, eachYearOfInterval, isSameMonth, isSameYear,
+  startOfDay, endOfDay, isWithinInterval
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import ExcelJS from 'exceljs';
@@ -122,8 +123,6 @@ export default function App() {
   const [activePieIndex, setActivePieIndex] = useState(0);
   const [activeChart, setActiveChart] = useState<'bar' | 'pie'>('bar');
 
-  const [isLogModalOpen, setIsLogModalOpen] = useState(false);
-  const [isLogExportModalOpen, setIsLogExportModalOpen] = useState(false);
   const [isPersonDetailModalOpen, setIsPersonDetailModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [selectedPersonId, setSelectedPersonId] = useState<number | null>(null);
@@ -139,6 +138,13 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [editingRecord, setEditingRecord] = useState<{ id: string; type: 'Entrada' | 'Saída'; value: string } | null>(null);
+
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
 
   const PROMPT_CONTA_CORRENTE = `**Tarefa:**
 Extraia do PDF anexado todas as movimentações da conta corrente (entradas e saídas) e gere um arquivo CSV com as colunas:
@@ -323,10 +329,8 @@ CSV com colunas:
   }, []);
 
   useEffect(() => {
-    if (isLogModalOpen) {
-      fetchData();
-    }
-  }, [isLogModalOpen]);
+    fetchData();
+  }, []);
 
   const handleUpdateValue = async () => {
     if (!editingRecord) return;
@@ -1464,18 +1468,6 @@ CSV com colunas:
               color="text-pink-600"
               hoverBg="hover:bg-pink-100"
             />
-            
-            <div className="pt-6 pb-2">
-              <p className="px-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">Sistema</p>
-            </div>
-            
-            <SidebarButton 
-              onClick={() => setIsLogModalOpen(true)} 
-              icon={<TrendingUp size={20} />} 
-              label="Log" 
-              color="text-gray-600"
-              hoverBg="hover:bg-gray-100"
-            />
           </nav>
         </div>
       </aside>
@@ -1485,6 +1477,19 @@ CSV com colunas:
         <div className="max-w-6xl mx-auto w-full flex flex-col h-full">
           <header className="mb-6 relative flex items-center justify-center min-h-[48px] shrink-0">
             <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-white p-2 px-4 shadow-soft border-soft">
+              <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+                <Search className="text-gray-400" size={18} />
+                <input 
+                  type="text" 
+                  placeholder="Pesquisar em qualquer coluna..."
+                  value={logSearchTerm}
+                  onChange={(e) => setLogSearchTerm(e.target.value)}
+                  className="w-full rounded-lg border-none bg-transparent px-2 py-1 outline-none text-sm font-medium text-gray-700 focus:ring-0"
+                />
+              </div>
+
+              <div className="w-px h-6 bg-gray-200 hidden md:block"></div>
+
               <div className="flex items-center gap-2">
                 <Filter className="text-gray-400" size={18} />
                 <select 
@@ -1731,6 +1736,145 @@ CSV com colunas:
               )}
             </AnimatePresence>
           </div>
+
+          <div className="mt-8 flex flex-col shrink-0 min-h-0">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                <TrendingUp size={20} className="text-indigo-600" />
+                Movimentações Detalhadas
+              </h2>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={fetchData}
+                  disabled={isLoading}
+                  className="p-2 rounded-xl bg-white shadow-soft border-soft text-amber-600 hover:bg-amber-50 transition-all active:scale-95 disabled:opacity-50"
+                  title="Atualizar dados"
+                >
+                  <RefreshCw size={18} className={isLoading ? 'animate-spin' : ''} />
+                </button>
+                <button
+                  onClick={() => handleExportLog({ format: 'xlsx', filename: 'Movimentacoes', columns: ['date', 'description', 'category', 'value', 'type', 'person', 'destination'] })}
+                  className="p-2 rounded-xl bg-white shadow-soft border-soft text-indigo-600 hover:bg-indigo-50 transition-all active:scale-95"
+                  title="Exportar Excel"
+                >
+                  <Download size={18} />
+                </button>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-gray-200 bg-white shadow-soft overflow-hidden flex flex-col max-h-[400px]">
+              <div className="overflow-auto custom-scrollbar">
+                <table className="w-full text-left text-sm">
+                  <thead className="sticky top-0 bg-gray-50 text-gray-600 z-10">
+                    <tr>
+                      <LogTableHeader label="ID" columnKey="dbId" />
+                      <LogTableHeader label="Data" columnKey="formattedDate" />
+                      <LogTableHeader label="Descrição" columnKey="descricao" />
+                      <LogTableHeader label="Categoria" columnKey="categoria" />
+                      <LogTableHeader label="Valor" columnKey="valor" />
+                      <LogTableHeader label="Tipo" columnKey="tipo" />
+                      <LogTableHeader label="Pessoa" columnKey="pessoa" />
+                      <LogTableHeader label="Destino" columnKey="destino" />
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50 bg-white">
+                    {filteredMovements.length > 0 ? (
+                      filteredMovements.map(m => (
+                        <tr key={m.id} className="hover:bg-gray-50 transition-colors">
+                          <td className="px-4 py-3 font-mono text-xs text-gray-500">
+                            {m.id.startsWith('d-') ? 'S' : 
+                             m.id.startsWith('s-') ? 'E' : 
+                             m.id.startsWith('p-') ? 'P' : 'C'}{m.dbId}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap">{m.formattedDate}</td>
+                          <td className="px-4 py-3">{m.descricao}</td>
+                          <td className="px-4 py-3">
+                            <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-600">
+                              {m.categoria}
+                            </span>
+                          </td>
+                          <td className={cn(
+                            "px-4 py-3 font-medium whitespace-nowrap",
+                            m.tipo === 'Entrada' ? "text-emerald-600" : 
+                            m.tipo === 'Saída' ? "text-rose-600" : "text-indigo-600"
+                          )}>
+                            {m.valor > 0 || m.tipo !== 'Atividade' ? formatCurrency(m.valor) : '-'}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={cn(
+                              "rounded-full px-2 py-1 text-xs font-medium",
+                              m.tipo === 'Entrada' ? "bg-emerald-100 text-emerald-700" : 
+                              m.tipo === 'Saída' ? "bg-rose-100 text-rose-700" : "bg-indigo-100 text-indigo-700"
+                            )}>
+                              {m.tipo}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap">{m.pessoa}</td>
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            <span className="text-gray-500 italic">{m.destino}</span>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={8} className="px-4 py-8 text-center text-gray-500 italic">
+                          Nenhuma movimentação encontrada.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {filteredAuditLogs.length > 0 && (
+              <div className="mt-6 space-y-4 mb-4">
+                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                  <div className="w-1 h-3 bg-amber-500 rounded-full" />
+                  Histórico de Alterações Recentes
+                </h3>
+                <div className="rounded-2xl border border-gray-200 bg-white shadow-soft overflow-hidden">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-gray-50 text-gray-600">
+                      <tr>
+                        <th className="px-4 py-2 font-semibold">Data/Hora</th>
+                        <th className="px-4 py-2 font-semibold">ID</th>
+                        <th className="px-4 py-2 font-semibold">Tipo</th>
+                        <th className="px-4 py-2 font-semibold">Pessoa</th>
+                        <th className="px-4 py-2 font-semibold">Registro</th>
+                        <th className="px-4 py-2 font-semibold">De</th>
+                        <th className="px-4 py-2 font-semibold">Para</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50 bg-white">
+                      {filteredAuditLogs.slice(0, 10).map(log => (
+                        <tr key={log.id} className="text-xs">
+                          <td className="px-4 py-2 text-gray-500">
+                            {format(parseISO(log.timestamp), 'dd/MM/yy HH:mm')}
+                          </td>
+                          <td className="px-4 py-2 font-mono text-[10px] text-gray-400">
+                            {log.tipo === 'Salário' ? 'E' : 'S'}{log.registro_id}
+                          </td>
+                          <td className="px-4 py-2">
+                            <span className={cn(
+                              "rounded-full px-2 py-0.5 text-[10px] font-medium",
+                              log.tipo === 'Salário' ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"
+                            )}>
+                              {log.tipo}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2 text-gray-600">{log.pessoa_nome || '-'}</td>
+                          <td className="px-4 py-2 font-medium">{log.descricao}</td>
+                          <td className="px-4 py-2 text-rose-600">{formatCurrency(log.valor_antigo)}</td>
+                          <td className="px-4 py-2 text-emerald-600">{formatCurrency(log.valor_novo)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -1959,165 +2103,6 @@ CSV com colunas:
         </div>
       </Modal>
 
-      <Modal isOpen={isLogModalOpen} onClose={() => setIsLogModalOpen(false)} title="Log de Atividades">
-        <div className="space-y-4">
-          <div className="sticky top-[-24px] z-20 bg-white pb-4 pt-2 -mx-6 px-6 border-b border-gray-50">
-            <div className="flex items-center gap-4">
-              <div className="relative flex-1">
-                <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-                <input 
-                  type="text" 
-                  placeholder="Buscar em qualquer coluna..."
-                  value={logSearchTerm}
-                  onChange={e => setLogSearchTerm(e.target.value)}
-                  className="w-full rounded-xl border-gray-200 bg-gray-50 py-2 pl-10 pr-4 outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-              <button
-                onClick={fetchData}
-                disabled={isLoading}
-                className="flex items-center gap-2 rounded-xl bg-amber-50 px-4 py-2 text-sm font-bold text-amber-600 hover:bg-amber-100 transition-all active:scale-95 shadow-sm disabled:opacity-50"
-                title="Atualizar dados"
-              >
-                <RefreshCw size={18} className={isLoading ? 'animate-spin' : ''} />
-                Atualizar
-              </button>
-              <button
-                onClick={() => setIsLogExportModalOpen(true)}
-                className="flex items-center gap-2 rounded-xl bg-indigo-50 px-4 py-2 text-sm font-bold text-indigo-600 hover:bg-indigo-100 transition-all active:scale-95 shadow-sm"
-              >
-                <Download size={18} />
-                Exportar
-              </button>
-              {(logSearchTerm || logSort) && (
-                <button
-                  onClick={() => {
-                    setLogSearchTerm('');
-                    setLogSort(null);
-                  }}
-                  className="flex items-center gap-2 rounded-xl bg-rose-50 px-4 py-2 text-sm font-bold text-rose-600 hover:bg-rose-100 transition-all active:scale-95 shadow-sm"
-                  title="Limpar filtros e ordenação"
-                >
-                  <RotateCcw size={18} />
-                  Limpar
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-gray-100 overflow-hidden">
-            <table className="w-full text-left text-sm">
-              <thead className="sticky top-[48px] bg-gray-100 text-gray-600 z-10">
-                <tr>
-                  <LogTableHeader label="ID" columnKey="dbId" />
-                  <LogTableHeader label="Data" columnKey="formattedDate" />
-                  <LogTableHeader label="Descrição" columnKey="descricao" />
-                  <LogTableHeader label="Categoria" columnKey="categoria" />
-                  <LogTableHeader label="Valor" columnKey="valor" />
-                  <LogTableHeader label="Tipo" columnKey="tipo" />
-                  <LogTableHeader label="Pessoa" columnKey="pessoa" />
-                  <LogTableHeader label="Destino" columnKey="destino" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50 bg-white">
-                {filteredMovements.length > 0 ? (
-                  filteredMovements.map(m => (
-                    <tr key={m.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-4 py-3 font-mono text-xs text-gray-500">
-                        {m.id.startsWith('d-') ? 'S' : 
-                         m.id.startsWith('s-') ? 'E' : 
-                         m.id.startsWith('p-') ? 'P' : 'C'}{m.dbId}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">{m.formattedDate}</td>
-                      <td className="px-4 py-3">{m.descricao}</td>
-                      <td className="px-4 py-3">
-                        <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-600">
-                          {m.categoria}
-                        </span>
-                      </td>
-                      <td className={cn(
-                        "px-4 py-3 font-medium whitespace-nowrap",
-                        m.tipo === 'Entrada' ? "text-emerald-600" : 
-                        m.tipo === 'Saída' ? "text-rose-600" : "text-indigo-600"
-                      )}>
-                        {m.valor > 0 || m.tipo !== 'Atividade' ? formatCurrency(m.valor) : '-'}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={cn(
-                          "rounded-full px-2 py-1 text-xs font-medium",
-                          m.tipo === 'Entrada' ? "bg-emerald-100 text-emerald-700" : 
-                          m.tipo === 'Saída' ? "bg-rose-100 text-rose-700" : "bg-indigo-100 text-indigo-700"
-                        )}>
-                          {m.tipo}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">{m.pessoa}</td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span className="text-gray-500 italic">{m.destino}</span>
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={8} className="px-4 py-8 text-center text-gray-500 italic">
-                      Nenhuma movimentação encontrada.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          {filteredAuditLogs.length > 0 && (
-            <div className="mt-8 space-y-4">
-              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
-                <div className="w-1 h-3 bg-amber-500 rounded-full" />
-                Histórico de Alterações
-              </h3>
-              <div className="rounded-xl border border-gray-100 overflow-hidden">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-gray-50 text-gray-600">
-                    <tr>
-                      <th className="px-4 py-2 font-semibold">Data/Hora</th>
-                      <th className="px-4 py-2 font-semibold">ID</th>
-                      <th className="px-4 py-2 font-semibold">Tipo</th>
-                      <th className="px-4 py-2 font-semibold">Pessoa</th>
-                      <th className="px-4 py-2 font-semibold">Registro</th>
-                      <th className="px-4 py-2 font-semibold">De</th>
-                      <th className="px-4 py-2 font-semibold">Para</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50 bg-white">
-                    {filteredAuditLogs.map(log => (
-                      <tr key={log.id} className="text-xs">
-                        <td className="px-4 py-2 text-gray-500">
-                          {format(parseISO(log.timestamp), 'dd/MM/yy HH:mm')}
-                        </td>
-                        <td className="px-4 py-2 font-mono text-[10px] text-gray-400">
-                          {log.tipo === 'Salário' ? 'E' : 'S'}{log.registro_id}
-                        </td>
-                        <td className="px-4 py-2">
-                          <span className={cn(
-                            "rounded-full px-2 py-0.5 text-[10px] font-medium",
-                            log.tipo === 'Salário' ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"
-                          )}>
-                            {log.tipo}
-                          </span>
-                        </td>
-                        <td className="px-4 py-2 text-gray-600">{log.pessoa_nome || '-'}</td>
-                        <td className="px-4 py-2 font-medium">{log.descricao}</td>
-                        <td className="px-4 py-2 text-rose-600">{formatCurrency(log.valor_antigo)}</td>
-                        <td className="px-4 py-2 text-emerald-600">{formatCurrency(log.valor_novo)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-        </div>
-      </Modal>
-
       <Modal 
         isOpen={isPersonDetailModalOpen} 
         onClose={() => {
@@ -2281,23 +2266,6 @@ CSV com colunas:
         onClose={() => setIsExportModalOpen(false)}
         onExport={handleExportData}
         defaultFilenamePrefix={`Resumo_${(selectedPersonDetails?.person.nome || '').replace(/\s+/g, '_')}`}
-      />
-
-      <ExportModal
-        isOpen={isLogExportModalOpen}
-        onClose={() => setIsLogExportModalOpen(false)}
-        onExport={handleExportLog}
-        title="Exportar Log de Atividades"
-        defaultFilenamePrefix="Log_Atividades"
-        availableColumns={[
-          { id: 'date', label: 'Data' },
-          { id: 'description', label: 'Descrição' },
-          { id: 'category', label: 'Categoria' },
-          { id: 'value', label: 'Valor' },
-          { id: 'type', label: 'Tipo' },
-          { id: 'person', label: 'Pessoa' },
-          { id: 'destination', label: 'Destino' },
-        ]}
       />
 
       <Modal isOpen={isReviewModalOpen} onClose={() => setIsReviewModalOpen(false)} title="Revisar Importação">

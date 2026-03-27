@@ -2307,7 +2307,12 @@ CSV com colunas:
         defaultFilenamePrefix={`Resumo_${(selectedPersonDetails?.person.nome || '').replace(/\s+/g, '_')}`}
       />
 
-      <Modal isOpen={isReviewModalOpen} onClose={() => setIsReviewModalOpen(false)} title="Revisar Importação">
+      <Modal 
+        isOpen={isReviewModalOpen} 
+        onClose={() => setIsReviewModalOpen(false)} 
+        title="Revisar Importação"
+        className="w-[90%] h-[90%] sm:w-[90%] sm:h-[90%]"
+      >
         <div className="flex flex-col h-full space-y-4">
           <div className="sticky top-[-24px] z-20 bg-white/95 backdrop-blur-sm pb-4 pt-2 -mx-6 px-6 border-b border-gray-50 space-y-3">
             <div className="flex items-center justify-between gap-4">

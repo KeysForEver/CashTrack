@@ -106,6 +106,9 @@ const SidebarButton = ({ onClick, icon, label, color, hoverBg }: any) => (
 export default function App() {
   const [pessoas, setPessoas] = useState<Pessoa[]>([]);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
+  const sortedCategorias = useMemo(() => {
+    return [...categorias].sort((a, b) => a.nome.localeCompare(b.nome));
+  }, [categorias]);
   const [despesas, setDespesas] = useState<Despesa[]>([]);
   const [salarios, setSalarios] = useState<Salario[]>([]);
 
@@ -1828,7 +1831,12 @@ CSV com colunas:
         </form>
       </Modal>
 
-      <Modal isOpen={isDespesaModalOpen} onClose={() => setIsDespesaModalOpen(false)} title="Adicionar Despesa">
+      <Modal 
+        isOpen={isDespesaModalOpen} 
+        onClose={() => setIsDespesaModalOpen(false)} 
+        title="Adicionar Saída"
+        className="w-[90%] h-[90%] sm:w-[90%] sm:h-[90%]"
+      >
         <form onSubmit={handleAddDespesa} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -1900,7 +1908,7 @@ CSV com colunas:
               className="mt-1 w-full rounded-xl border-gray-200 bg-gray-50 p-3 outline-none focus:ring-2 focus:ring-indigo-500"
             >
               <option value="">Selecione...</option>
-              {categorias.map(c => (
+              {sortedCategorias.map(c => (
                 <option key={c.id} value={c.id}>{c.nome}</option>
               ))}
             </select>
@@ -1911,7 +1919,12 @@ CSV com colunas:
         </form>
       </Modal>
 
-      <Modal isOpen={isSalarioModalOpen} onClose={() => setIsSalarioModalOpen(false)} title="Adicionar Entrada">
+      <Modal 
+        isOpen={isSalarioModalOpen} 
+        onClose={() => setIsSalarioModalOpen(false)} 
+        title="Adicionar Entrada"
+        className="w-[90%] h-[90%] sm:w-[90%] sm:h-[90%]"
+      >
         <form onSubmit={handleAddSalario} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -2010,8 +2023,8 @@ CSV com colunas:
           <div className="space-y-3">
             <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest">Categorias Existentes</h3>
             <div className="max-h-[300px] overflow-y-auto custom-scrollbar rounded-xl border border-gray-100 divide-y divide-gray-50">
-              {categorias.length > 0 ? (
-                categorias.map(cat => (
+              {sortedCategorias.length > 0 ? (
+                sortedCategorias.map(cat => (
                   <div key={cat.id} className="flex items-center justify-between p-3 hover:bg-gray-50 transition-colors group">
                     <span className="font-medium text-gray-700">{cat.nome}</span>
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
@@ -2078,7 +2091,12 @@ CSV com colunas:
         </div>
       </Modal>
 
-      <Modal isOpen={isImportModalOpen} onClose={() => setIsImportModalOpen(false)} title="Importar CSV">
+      <Modal 
+        isOpen={isImportModalOpen} 
+        onClose={() => setIsImportModalOpen(false)} 
+        title="Importar CSV"
+        className="w-[90%] h-[90%] sm:w-[90%] sm:h-[90%]"
+      >
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700">Pessoa de Referência</label>

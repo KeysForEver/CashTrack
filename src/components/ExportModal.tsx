@@ -23,7 +23,8 @@ export interface ExportOptions {
 }
 
 const DEFAULT_COLUMNS: ExportColumn[] = [
-  { id: 'date', label: 'Data' },
+  { id: 'date', label: 'Data Pagamento' },
+  { id: 'date_compra', label: 'Data Compra' },
   { id: 'description', label: 'Descrição' },
   { id: 'category', label: 'Categoria' },
   { id: 'value', label: 'Valor' },

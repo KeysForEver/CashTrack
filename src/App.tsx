@@ -121,6 +121,8 @@ export default function App() {
   const [pendingRestoreFile, setPendingRestoreFile] = useState<File | null>(null);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
   const [reviewItems, setReviewItems] = useState<any[]>([]);
+  const [importSource, setImportSource] = useState<'extrato' | 'cartao'>('extrato');
+  const [globalPaymentDate, setGlobalPaymentDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
   const [toast, setToast] = useState<string | null>(null);
@@ -263,8 +265,21 @@ CSV com colunas:
 
   // Form states
   const [newPessoa, setNewPessoa] = useState({ nome: '', cor: '' });
-  const [newDespesa, setNewDespesa] = useState({ data: format(new Date(), 'yyyy-MM-dd'), valor: '', descricao: '', origem_id: '', destino: 'Dividir', categoria_id: '' });
-  const [newSalario, setNewSalario] = useState({ data: format(new Date(), 'yyyy-MM-dd'), valor: '', descricao: '', recebedor_id: '' });
+  const [newDespesa, setNewDespesa] = useState({ 
+    data_compra: format(new Date(), 'yyyy-MM-dd'), 
+    data_pagamento: format(new Date(), 'yyyy-MM-dd'), 
+    valor: '', 
+    descricao: '', 
+    origem_id: '', 
+    destino: 'Dividir', 
+    categoria_id: '' 
+  });
+  const [newSalario, setNewSalario] = useState({ 
+    data_pagamento: format(new Date(), 'yyyy-MM-dd'), 
+    valor: '', 
+    descricao: '', 
+    recebedor_id: '' 
+  });
   const [newCategoria, setNewCategoria] = useState({ nome: '' });
   const [importPessoaId, setImportPessoaId] = useState('');
   const [logSearchTerm, setLogSearchTerm] = useState('');
@@ -373,11 +388,11 @@ CSV com colunas:
   const availableYears = useMemo(() => {
     const years = new Set<number>();
     despesas.forEach(d => {
-      const date = parseISO(d.data);
+      const date = parseISO(d.data_pagamento);
       if (!isNaN(date.getTime())) years.add(getYear(date));
     });
     salarios.forEach(s => {
-      const date = parseISO(s.data);
+      const date = parseISO(s.data_pagamento);
       if (!isNaN(date.getTime())) years.add(getYear(date));
     });
     return Array.from(years).sort((a, b) => b - a);
@@ -385,7 +400,10 @@ CSV com colunas:
 
   const availableMonths = useMemo(() => {
     const months = new Set<number>();
-    const items = [...despesas, ...salarios];
+    const items = [
+      ...despesas.map(d => ({ data: d.data_pagamento })),
+      ...salarios.map(s => ({ data: s.data_pagamento }))
+    ];
     items.forEach(item => {
       const date = parseISO(item.data);
       if (!isNaN(date.getTime())) {
@@ -399,9 +417,9 @@ CSV com colunas:
 
   const filteredDespesas = useMemo(() => {
     return despesas.filter(d => {
-      const date = parseISO(d.data);
+      const date = parseISO(d.data_pagamento);
       if (isNaN(date.getTime())) return true; // Keep invalid dates to show them
-      const dateStr = d.data;
+      const dateStr = d.data_pagamento;
       const m = getMonth(date);
       const y = getYear(date);
 
@@ -416,9 +434,9 @@ CSV com colunas:
 
   const filteredSalarios = useMemo(() => {
     return salarios.filter(s => {
-      const date = parseISO(s.data);
+      const date = parseISO(s.data_pagamento);
       if (isNaN(date.getTime())) return true;
-      const dateStr = s.data;
+      const dateStr = s.data_pagamento;
       const m = getMonth(date);
       const y = getYear(date);
 
@@ -527,25 +545,29 @@ CSV com colunas:
 
     let movements = [
       ...pDespesas.map(d => {
-        const dateObj = parseISO(d.data);
+        const dateObj = parseISO(d.data_pagamento);
         const isValidDate = !isNaN(dateObj.getTime());
         return { 
           ...d, 
           id: `despesa-${d.id}`,
           tipo: 'Saída', 
-          displayData: d.data,
-          formattedDate: isValidDate ? format(dateObj, 'dd/MM/yyyy') : d.data
+          displayData: d.data_pagamento,
+          data_compra: d.data_compra || d.data_pagamento,
+          formattedDate: isValidDate ? format(dateObj, 'dd/MM/yyyy') : d.data_pagamento,
+          formattedCompraDate: d.data_compra ? format(parseISO(d.data_compra), 'dd/MM/yyyy') : (isValidDate ? format(dateObj, 'dd/MM/yyyy') : d.data_pagamento)
         };
       }),
       ...pSalarios.map(s => {
-        const dateObj = parseISO(s.data);
+        const dateObj = parseISO(s.data_pagamento);
         const isValidDate = !isNaN(dateObj.getTime());
         return { 
           ...s, 
           id: `salario-${s.id}`,
           tipo: 'Entrada', 
-          displayData: s.data,
-          formattedDate: isValidDate ? format(dateObj, 'dd/MM/yyyy') : s.data
+          displayData: s.data_pagamento,
+          data_compra: s.data_pagamento,
+          formattedDate: isValidDate ? format(dateObj, 'dd/MM/yyyy') : s.data_pagamento,
+          formattedCompraDate: isValidDate ? format(dateObj, 'dd/MM/yyyy') : s.data_pagamento
         };
       })
     ].sort((a, b) => b.displayData.localeCompare(a.displayData));
@@ -569,6 +591,8 @@ CSV com colunas:
           valorFixed.replace('.', ',').includes(term) ||
           valorFormatted.includes(term) ||
           m.formattedDate.includes(term) ||
+          (m.data_compra && m.data_compra.includes(term)) ||
+          (m.formattedCompraDate && m.formattedCompraDate.includes(term)) ||
           normalize(m.tipo).includes(term);
       });
     }
@@ -590,7 +614,10 @@ CSV com colunas:
   }, [selectedPersonId, pessoas, filteredDespesas, filteredSalarios, personSearchTerm]);
 
   const barChartData = useMemo(() => {
-    const items = [...filteredDespesas, ...filteredSalarios];
+    const items = [
+      ...filteredDespesas.map(d => ({ ...d, data: d.data_pagamento })),
+      ...filteredSalarios.map(s => ({ ...s, data: s.data_pagamento }))
+    ];
     if (items.length === 0) return [];
 
     // Determine the range
@@ -626,7 +653,7 @@ CSV com colunas:
       const days = eachDayOfInterval({ start, end });
       return days.map(day => {
         const dayStr = format(day, 'yyyy-MM-dd');
-        const dayDespesas = filteredDespesas.filter(d => d.data === dayStr);
+        const dayDespesas = filteredDespesas.filter(d => d.data_pagamento === dayStr);
         
         const data: any = { day: format(day, 'dd/MM') };
         pessoas.forEach(p => {
@@ -644,7 +671,7 @@ CSV com colunas:
       // Show months
       const months = eachMonthOfInterval({ start, end });
       return months.map(month => {
-        const monthDespesas = filteredDespesas.filter(d => isSameMonth(parseISO(d.data), month));
+        const monthDespesas = filteredDespesas.filter(d => isSameMonth(parseISO(d.data_pagamento), month));
         const data: any = { day: format(month, 'MMM/yy', { locale: ptBR }) };
         pessoas.forEach(p => {
           data[p.nome] = monthDespesas
@@ -660,7 +687,7 @@ CSV com colunas:
       // Show years
       const years = eachYearOfInterval({ start, end });
       return years.map(year => {
-        const yearDespesas = filteredDespesas.filter(d => isSameYear(parseISO(d.data), year));
+        const yearDespesas = filteredDespesas.filter(d => isSameYear(parseISO(d.data_pagamento), year));
         const data: any = { day: format(year, 'yyyy') };
         pessoas.forEach(p => {
           data[p.nome] = yearDespesas
@@ -712,13 +739,13 @@ CSV com colunas:
     };
 
     // 1. Current records from despesas and salarios (using raw despesas/salarios but applying same filtering logic)
-    const mDespesas = despesas.filter(d => matchesFilters(d.data)).map(d => {
+    const mDespesas = despesas.filter(d => matchesFilters(d.data_pagamento)).map(d => {
       let destinoLabel = d.destino;
       if (d.destino !== 'Dividir') {
         const p = pessoas.find(p => Number(p.id) === Number(d.destino));
         destinoLabel = p ? p.nome : d.destino;
       }
-      const dateObj = parseISO(d.data);
+      const dateObj = parseISO(d.data_pagamento);
       const isValidDate = !isNaN(dateObj.getTime());
       
       // Get initial value from logs if available
@@ -727,10 +754,13 @@ CSV com colunas:
       
       return {
         id: `d-${d.id}`,
-        data: d.data,
+        data: d.data_pagamento,
+        data_compra: d.data_compra || d.data_pagamento,
+        data_pagamento: d.data_pagamento,
         dateObj,
         isValidDate,
-        formattedDate: isValidDate ? format(dateObj, 'dd/MM/yyyy') : d.data,
+        formattedDate: isValidDate ? format(dateObj, 'dd/MM/yyyy') : d.data_pagamento,
+        formattedCompraDate: d.data_compra ? format(parseISO(d.data_compra), 'dd/MM/yyyy') : (isValidDate ? format(dateObj, 'dd/MM/yyyy') : d.data_pagamento),
         month: isValidDate ? getMonth(dateObj) + 1 : 0,
         monthName: isValidDate ? format(dateObj, 'MMMM', { locale: ptBR }) : '',
         monthNameShort: isValidDate ? format(dateObj, 'MMM', { locale: ptBR }) : '',
@@ -747,8 +777,8 @@ CSV com colunas:
       };
     });
 
-    const mSalarios = salarios.filter(s => matchesFilters(s.data)).map(s => {
-      const dateObj = parseISO(s.data);
+    const mSalarios = salarios.filter(s => matchesFilters(s.data_pagamento)).map(s => {
+      const dateObj = parseISO(s.data_pagamento);
       const isValidDate = !isNaN(dateObj.getTime());
       
       // Get initial value from logs if available
@@ -757,10 +787,13 @@ CSV com colunas:
       
       return {
         id: `s-${s.id}`,
-        data: s.data,
+        data: s.data_pagamento,
+        data_compra: s.data_pagamento,
+        data_pagamento: s.data_pagamento,
         dateObj,
         isValidDate,
-        formattedDate: isValidDate ? format(dateObj, 'dd/MM/yyyy') : s.data,
+        formattedDate: isValidDate ? format(dateObj, 'dd/MM/yyyy') : s.data_pagamento,
+        formattedCompraDate: isValidDate ? format(dateObj, 'dd/MM/yyyy') : s.data_pagamento,
         month: isValidDate ? getMonth(dateObj) + 1 : 0,
         monthName: isValidDate ? format(dateObj, 'MMMM', { locale: ptBR }) : '',
         monthNameShort: isValidDate ? format(dateObj, 'MMM', { locale: ptBR }) : '',
@@ -806,9 +839,12 @@ CSV com colunas:
       return {
         id: `${l.tipo === 'Despesa' ? 'd' : 's'}-${l.registro_id}`,
         data: dateStr,
+        data_compra: dateStr,
+        data_pagamento: dateStr,
         dateObj,
         isValidDate,
         formattedDate: isValidDate ? format(dateObj, 'dd/MM/yyyy') : dateStr,
+        formattedCompraDate: isValidDate ? format(dateObj, 'dd/MM/yyyy') : dateStr,
         month: isValidDate ? getMonth(dateObj) + 1 : 0,
         monthName: isValidDate ? format(dateObj, 'MMMM', { locale: ptBR }) : '',
         monthNameShort: isValidDate ? format(dateObj, 'MMM', { locale: ptBR }) : '',
@@ -838,9 +874,12 @@ CSV com colunas:
       return {
         id: `${l.tipo === 'Pessoa' ? 'p' : 'c'}-${l.registro_id}`,
         data: dateStr,
+        data_compra: dateStr,
+        data_pagamento: dateStr,
         dateObj,
         isValidDate,
         formattedDate: isValidDate ? format(dateObj, 'dd/MM/yyyy') : dateStr,
+        formattedCompraDate: isValidDate ? format(dateObj, 'dd/MM/yyyy') : dateStr,
         month: isValidDate ? getMonth(dateObj) + 1 : 0,
         monthName: isValidDate ? format(dateObj, 'MMMM', { locale: ptBR }) : '',
         monthNameShort: isValidDate ? format(dateObj, 'MMM', { locale: ptBR }) : '',
@@ -903,6 +942,8 @@ CSV com colunas:
           m.dbId.toString().includes(term) ||
           m.data.includes(term) ||
           m.formattedDate.includes(term) ||
+          (m.data_compra && m.data_compra.includes(term)) ||
+          (m.formattedCompraDate && m.formattedCompraDate.includes(term)) ||
           normalize(m.monthName).includes(term) ||
           normalize(m.monthNameShort).includes(term) ||
           normalize(m.descricao).includes(term) ||
@@ -1044,7 +1085,8 @@ CSV com colunas:
       }
       // Reset all fields
       setNewDespesa({ 
-        data: format(new Date(), 'yyyy-MM-dd'), 
+        data_compra: format(new Date(), 'yyyy-MM-dd'), 
+        data_pagamento: format(new Date(), 'yyyy-MM-dd'), 
         valor: '', 
         descricao: '', 
         origem_id: '', 
@@ -1086,7 +1128,7 @@ CSV com colunas:
       }
       // Reset all fields
       setNewSalario({ 
-        data: format(new Date(), 'yyyy-MM-dd'), 
+        data_pagamento: format(new Date(), 'yyyy-MM-dd'), 
         valor: '', 
         descricao: '', 
         recebedor_id: '' 
@@ -1275,7 +1317,8 @@ CSV com colunas:
 
         items.push({
           id: Math.random().toString(36).substr(2, 9),
-          data: formattedDate,
+          data_compra: formattedDate,
+          data_pagamento: importSource === 'extrato' ? formattedDate : globalPaymentDate,
           descricao: descricao.trim(),
           categoria: categoriaNome.trim(),
           valor,
@@ -1329,7 +1372,7 @@ CSV com colunas:
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              data: item.data,
+              data_pagamento: item.data_pagamento,
               valor: item.valor,
               descricao: item.descricao,
               recebedor_id: parseInt(importPessoaId)
@@ -1348,7 +1391,8 @@ CSV com colunas:
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                data: item.data,
+                data_compra: item.data_compra,
+                data_pagamento: item.data_pagamento,
                 valor: item.valor,
                 descricao: item.descricao,
                 origem_id: parseInt(importPessoaId),
@@ -1386,8 +1430,9 @@ CSV com colunas:
     const worksheet = workbook.addWorksheet('Resumo');
 
     const columns: any[] = [];
-    if (options.columns.includes('date')) columns.push({ header: 'Data', key: 'date', width: 15 });
-    if (options.columns.includes('description')) columns.push({ header: 'Descrição', key: 'description', width: 30 });
+    if (options.columns.includes('date')) columns.push({ header: 'Data Pagamento', key: 'date', width: 15 });
+    if (options.columns.includes('date_compra')) columns.push({ header: 'Data Compra', key: 'date_compra', width: 15 });
+    if (options.columns.includes('description')) columns.push({ header: 'Descrição', key: 'description', width: 35 });
     if (options.columns.includes('category')) columns.push({ header: 'Categoria', key: 'category', width: 20 });
     if (options.columns.includes('value')) columns.push({ header: 'Valor', key: 'value', width: 15 });
     if (options.columns.includes('type')) columns.push({ header: 'Tipo', key: 'type', width: 15 });
@@ -1395,7 +1440,8 @@ CSV com colunas:
 
     selectedPersonDetails.movements.forEach((m: any) => {
       const row: any = {};
-      if (options.columns.includes('date')) row['date'] = format(parseISO(m.displayData), 'dd/MM/yyyy');
+      if (options.columns.includes('date')) row['date'] = m.formattedDate;
+      if (options.columns.includes('date_compra')) row['date_compra'] = m.formattedCompraDate;
       if (options.columns.includes('description')) row['description'] = m.descricao;
       if (options.columns.includes('category')) row['category'] = m.categoria_nome || '-';
       if (options.columns.includes('value')) row['value'] = m.valor;
@@ -1417,8 +1463,9 @@ CSV com colunas:
     const worksheet = workbook.addWorksheet('Log_Atividades');
 
     const columns: any[] = [];
-    if (options.columns.includes('date')) columns.push({ header: 'Data', key: 'date', width: 15 });
-    if (options.columns.includes('description')) columns.push({ header: 'Descrição', key: 'description', width: 30 });
+    if (options.columns.includes('date')) columns.push({ header: 'Data Pagamento', key: 'date', width: 15 });
+    if (options.columns.includes('date_compra')) columns.push({ header: 'Data Compra', key: 'date_compra', width: 15 });
+    if (options.columns.includes('description')) columns.push({ header: 'Descrição', key: 'description', width: 35 });
     if (options.columns.includes('category')) columns.push({ header: 'Categoria', key: 'category', width: 20 });
     if (options.columns.includes('value')) columns.push({ header: 'Valor', key: 'value', width: 15 });
     if (options.columns.includes('type')) columns.push({ header: 'Tipo', key: 'type', width: 15 });
@@ -1428,7 +1475,8 @@ CSV com colunas:
 
     filteredMovements.forEach((m: any) => {
       const row: any = {};
-      if (options.columns.includes('date')) row['date'] = format(parseISO(m.data), 'dd/MM/yyyy');
+      if (options.columns.includes('date')) row['date'] = m.formattedDate;
+      if (options.columns.includes('date_compra')) row['date_compra'] = m.formattedCompraDate;
       if (options.columns.includes('description')) row['description'] = m.descricao;
       if (options.columns.includes('category')) row['category'] = m.categoria || '-';
       if (options.columns.includes('value')) row['value'] = m.valor;
@@ -1850,28 +1898,38 @@ CSV com colunas:
         className="w-[90%] h-[90%] sm:w-[90%] sm:h-[90%]"
       >
         <form onSubmit={handleAddDespesa} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700">Data</label>
+              <label className="block text-sm font-medium text-gray-700">Data da Compra</label>
               <input 
                 type="date" 
                 required
-                value={newDespesa.data}
-                onChange={e => setNewDespesa(prev => ({ ...prev, data: e.target.value }))}
+                value={newDespesa.data_compra}
+                onChange={e => setNewDespesa(prev => ({ ...prev, data_compra: e.target.value }))}
                 className="mt-1 w-full rounded-xl border-gray-200 bg-gray-50 p-3 outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Valor (R$)</label>
+              <label className="block text-sm font-medium text-gray-700">Data do Pagamento</label>
               <input 
-                type="number" 
-                step="0.01"
+                type="date" 
                 required
-                value={newDespesa.valor}
-                onChange={e => setNewDespesa(prev => ({ ...prev, valor: e.target.value }))}
+                value={newDespesa.data_pagamento}
+                onChange={e => setNewDespesa(prev => ({ ...prev, data_pagamento: e.target.value }))}
                 className="mt-1 w-full rounded-xl border-gray-200 bg-gray-50 p-3 outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Valor (R$)</label>
+            <input 
+              type="number" 
+              step="0.01"
+              required
+              value={newDespesa.valor}
+              onChange={e => setNewDespesa(prev => ({ ...prev, valor: e.target.value }))}
+              className="mt-1 w-full rounded-xl border-gray-200 bg-gray-50 p-3 outline-none focus:ring-2 focus:ring-indigo-500"
+            />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700">Descrição</label>
@@ -1940,12 +1998,12 @@ CSV com colunas:
         <form onSubmit={handleAddSalario} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700">Data</label>
+              <label className="block text-sm font-medium text-gray-700">Data do Pagamento</label>
               <input 
                 type="date" 
                 required
-                value={newSalario.data}
-                onChange={e => setNewSalario(prev => ({ ...prev, data: e.target.value }))}
+                value={newSalario.data_pagamento}
+                onChange={e => setNewSalario(prev => ({ ...prev, data_pagamento: e.target.value }))}
                 className="mt-1 w-full rounded-xl border-gray-200 bg-gray-50 p-3 outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>
@@ -2110,20 +2168,47 @@ CSV com colunas:
         className="w-[90%] h-[90%] sm:w-[90%] sm:h-[90%]"
       >
         <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Pessoa de Referência</label>
-            <select 
-              required
-              value={importPessoaId}
-              onChange={e => setImportPessoaId(e.target.value)}
-              className="mt-1 w-full rounded-xl border-gray-200 bg-gray-50 p-3 outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-              <option value="">Selecione...</option>
-              {pessoas.map(p => (
-                <option key={p.id} value={p.id}>{p.nome}</option>
-              ))}
-            </select>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Pessoa de Referência</label>
+              <select 
+                required
+                value={importPessoaId}
+                onChange={e => setImportPessoaId(e.target.value)}
+                className="mt-1 w-full rounded-xl border-gray-200 bg-gray-50 p-3 outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="">Selecione...</option>
+                {pessoas.map(p => (
+                  <option key={p.id} value={p.id}>{p.nome}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Fonte dos Dados</label>
+              <select 
+                value={importSource}
+                onChange={e => setImportSource(e.target.value as 'extrato' | 'cartao')}
+                className="mt-1 w-full rounded-xl border-gray-200 bg-gray-50 p-3 outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="extrato">Extrato Bancário</option>
+                <option value="cartao">Cartão de Crédito</option>
+              </select>
+            </div>
           </div>
+          
+          {importSource === 'cartao' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Data de Pagamento (Fatura)</label>
+              <input 
+                type="date" 
+                value={globalPaymentDate}
+                onChange={e => setGlobalPaymentDate(e.target.value)}
+                className="mt-1 w-full rounded-xl border-gray-200 bg-gray-50 p-3 outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              <p className="mt-1 text-xs text-gray-500">Esta data será aplicada a todos os itens da fatura.</p>
+            </div>
+          )}
+
           <div>
             <label className="block text-sm font-medium text-gray-700">Arquivo CSV</label>
             <input 
@@ -2225,7 +2310,8 @@ CSV com colunas:
                 <table className="w-full text-left text-sm">
                   <thead className="sticky top-0 bg-gray-100 text-gray-600 z-10">
                     <tr>
-                      <th className="px-4 py-3 font-semibold">Data</th>
+                      <th className="px-4 py-3 font-semibold">Data Compra</th>
+                      <th className="px-4 py-3 font-semibold">Data Pagto</th>
                       <th className="px-4 py-3 font-semibold">Descrição</th>
                       <th className="px-4 py-3 font-semibold">Valor</th>
                       <th className="px-4 py-3 font-semibold">Tipo</th>
@@ -2235,7 +2321,8 @@ CSV com colunas:
                     {selectedPersonDetails.movements.length > 0 ? (
                       selectedPersonDetails.movements.map((m: any) => (
                         <tr key={m.id} className="hover:bg-gray-50 transition-colors group">
-                          <td className="px-4 py-3 whitespace-nowrap">{m.formattedDate}</td>
+                          <td className="px-4 py-3 whitespace-nowrap text-xs">{m.formattedCompraDate}</td>
+                          <td className="px-4 py-3 whitespace-nowrap text-xs font-medium text-indigo-600">{m.formattedDate}</td>
                           <td className="px-4 py-3">
                             <div className="font-medium">{m.descricao}</div>
                             {m.categoria_nome && (
@@ -2379,7 +2466,8 @@ CSV com colunas:
             <table className="w-full text-left text-sm">
               <thead className="text-gray-600">
                 <tr>
-                  <th className="sticky top-0 px-4 py-3 font-semibold bg-gray-100 z-10">Data</th>
+                  <th className="sticky top-0 px-4 py-3 font-semibold bg-gray-100 z-10">Data Compra</th>
+                  <th className="sticky top-0 px-4 py-3 font-semibold bg-gray-100 z-10">Data Pagto</th>
                   <th className="sticky top-0 px-4 py-3 font-semibold bg-gray-100 z-10">Descrição</th>
                   <th className="sticky top-0 px-4 py-3 font-semibold bg-gray-100 z-10">Categoria</th>
                   <th className="sticky top-0 px-4 py-3 font-semibold bg-gray-100 z-10">Valor</th>
@@ -2393,18 +2481,21 @@ CSV com colunas:
                   .filter(item => {
                     if (!reviewSearchTerm) return true;
                     const term = reviewSearchTerm.toLowerCase();
-                    const formattedDate = format(parseISO(item.data), 'dd/MM/yyyy');
+                    const formattedDateCompra = format(parseISO(item.data_compra), 'dd/MM/yyyy');
+                    const formattedDatePagto = format(parseISO(item.data_pagamento), 'dd/MM/yyyy');
                     return (
                       item.descricao.toLowerCase().includes(term) ||
                       item.categoria.toLowerCase().includes(term) ||
                       item.valor.toString().includes(term) ||
                       item.tipo.toLowerCase().includes(term) ||
-                      formattedDate.includes(term)
+                      formattedDateCompra.includes(term) ||
+                      formattedDatePagto.includes(term)
                     );
                   })
                   .map((item, idx) => (
                     <tr key={item.id} className="hover:bg-gray-50 transition-colors group">
-                    <td className="px-4 py-3 whitespace-nowrap">{format(parseISO(item.data), 'dd/MM/yyyy')}</td>
+                    <td className="px-4 py-3 whitespace-nowrap text-xs">{format(parseISO(item.data_compra), 'dd/MM/yyyy')}</td>
+                    <td className="px-4 py-3 whitespace-nowrap text-xs font-medium text-indigo-600">{format(parseISO(item.data_pagamento), 'dd/MM/yyyy')}</td>
                     <td className="px-4 py-3">{item.descricao}</td>
                     <td className="px-4 py-3">
                       <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-600">

@@ -11,7 +11,8 @@ export interface Categoria {
 
 export interface Despesa {
   id: number;
-  data: string;
+  data_compra: string;
+  data_pagamento: string;
   valor: number;
   descricao: string;
   origem_id: number;
@@ -23,7 +24,7 @@ export interface Despesa {
 
 export interface Salario {
   id: number;
-  data: string;
+  data_pagamento: string;
   valor: number;
   descricao: string;
   recebedor_id: number;
@@ -32,7 +33,8 @@ export interface Salario {
 
 export interface Movement {
   id: string;
-  data: string;
+  data_compra: string;
+  data_pagamento: string;
   dateObj: Date;
   isValidDate: boolean;
   formattedDate: string;

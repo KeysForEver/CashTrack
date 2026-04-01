@@ -1543,7 +1543,7 @@ CSV com colunas:
 
       {/* Main Content */}
       <main className="flex-1 ml-72 p-6 flex flex-col overflow-hidden">
-        <div className="max-w-6xl mx-auto w-full flex flex-col h-full">
+        <div className="w-[95%] mx-auto flex flex-col h-full">
           <header className="mb-6 relative flex items-center justify-center min-h-[48px] shrink-0">
             <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-white p-2 px-4 shadow-soft border-soft">
               <div className="flex items-center gap-2">
@@ -1635,64 +1635,66 @@ CSV com colunas:
 
       <div className="flex-1 flex gap-6 min-h-0">
         {/* Left Column: Balance and Person Cards */}
-        <div className="flex-[0.4] flex flex-col gap-4 overflow-y-auto pr-2 custom-scrollbar pb-6">
-          {/* Yellow Balance Card */}
-          {hasRecords && (
-            <div className="w-full rounded-2xl bg-yellow-100 p-4 shadow-soft border-2 border-yellow-200 shrink-0">
-              <div className="mb-2 flex items-center gap-2 text-yellow-800">
-                <TrendingUp size={20} />
-                <h2 className="text-lg font-bold">Ajustes de Saldo</h2>
+        <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar pb-6">
+          <div className="min-h-full flex flex-col gap-4 justify-center">
+            {/* Yellow Balance Card */}
+            {hasRecords && (
+              <div className="w-full rounded-2xl bg-yellow-100 p-4 shadow-soft border-2 border-yellow-200 shrink-0">
+                <div className="mb-2 flex items-center gap-2 text-yellow-800">
+                  <TrendingUp size={20} />
+                  <h2 className="text-lg font-bold">Ajustes de Saldo</h2>
+                </div>
+                {balances.length > 0 ? (
+                  <ul className="space-y-1">
+                    {balances.map((adj, i) => (
+                      <li key={i} className="text-sm text-yellow-900 font-medium">• {adj}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-yellow-800 italic">Tudo equilibrado! Ninguém deve ninguém.</p>
+                )}
               </div>
-              {balances.length > 0 ? (
-                <ul className="space-y-1">
-                  {balances.map((adj, i) => (
-                    <li key={i} className="text-sm text-yellow-900 font-medium">• {adj}</li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-sm text-yellow-800 italic">Tudo equilibrado! Ninguém deve ninguém.</p>
-              )}
-            </div>
-          )}
+            )}
 
-          {/* Person Cards Stack */}
-          <div className="flex flex-col gap-4">
-            {personStats.map(p => (
-              <div 
-                key={p.id} 
-                onClick={() => {
-                  setSelectedPersonId(p.id);
-                  setIsPersonDetailModalOpen(true);
-                }}
-                className="rounded-2xl bg-white p-6 shadow-soft border-soft overflow-hidden relative cursor-pointer hover:shadow-lg hover:scale-[1.02] transition-all group shrink-0"
-                style={{ '--hover-bg': `${p.cor}15` } as any}
-              >
-                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity" style={{ backgroundColor: `${p.cor}15` }}></div>
-                <div className="absolute top-0 left-0 w-full h-2" style={{ backgroundColor: p.cor }}></div>
-                <div className="flex justify-between items-start mb-4">
-                  <h3 className="text-xl font-bold" style={{ color: p.cor }}>{p.nome}</h3>
-                  <div className="flex items-center gap-2">
-                    <ChevronDown size={18} className="text-gray-300 group-hover:text-gray-500 transition-colors" />
+            {/* Person Cards Stack */}
+            <div className="flex flex-col gap-4">
+              {personStats.map(p => (
+                <div 
+                  key={p.id} 
+                  onClick={() => {
+                    setSelectedPersonId(p.id);
+                    setIsPersonDetailModalOpen(true);
+                  }}
+                  className="rounded-2xl bg-white p-6 shadow-soft border-soft overflow-hidden relative cursor-pointer hover:shadow-lg hover:scale-[1.02] transition-all group shrink-0"
+                  style={{ '--hover-bg': `${p.cor}15` } as any}
+                >
+                  <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity" style={{ backgroundColor: `${p.cor}15` }}></div>
+                  <div className="absolute top-0 left-0 w-full h-2" style={{ backgroundColor: p.cor }}></div>
+                  <div className="flex justify-between items-start mb-4">
+                    <h3 className="text-xl font-bold" style={{ color: p.cor }}>{p.nome}</h3>
+                    <div className="flex items-center gap-2">
+                      <ChevronDown size={18} className="text-gray-300 group-hover:text-gray-500 transition-colors" />
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-500">Total Gasto:</span>
+                      <span className="font-bold text-rose-600">{formatCurrency(p.totalSpent)}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-500">Entrada Recebida:</span>
+                      <span className="font-bold text-emerald-600">{formatCurrency(p.totalSalary)}</span>
+                    </div>
                   </div>
                 </div>
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-500">Total Gasto:</span>
-                    <span className="font-bold text-rose-600">{formatCurrency(p.totalSpent)}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-500">Entrada Recebida:</span>
-                    <span className="font-bold text-emerald-600">{formatCurrency(p.totalSalary)}</span>
-                  </div>
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         </div>
 
         {/* Right Column: Charts */}
         {hasRecords && (
-          <div className="flex-[0.6] flex flex-col min-h-0">
+          <div className="flex-[2] flex flex-col min-h-0">
             <div className="flex items-center justify-end mb-4 shrink-0">
               <div className="flex items-center gap-1 bg-white p-1 rounded-xl shadow-soft border-soft">
                 <button

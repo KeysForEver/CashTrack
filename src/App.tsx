@@ -34,22 +34,7 @@ const formatCurrency = (value: number) => {
 };
 
 const renderActiveShape = (props: any) => {
-  const RADIAN = Math.PI / 180;
-  const { cx, cy, midAngle, innerRadius, outerRadius, startAngle, endAngle, fill, payload, percent, value } = props;
-  const sin = Math.sin(-RADIAN * midAngle);
-  const cos = Math.cos(-RADIAN * midAngle);
-  const sx = cx + (outerRadius + 10) * cos;
-  const sy = cy + (outerRadius + 10) * sin;
-  const mx = cx + (outerRadius + 30) * cos;
-  const my = cy + (outerRadius + 30) * sin;
-  const ex = mx + (cos >= 0 ? 1 : -1) * 22;
-  const ey = my;
-  const textAnchor = cos >= 0 ? 'start' : 'end';
-
-  const label = `${payload.name} (${formatCurrency(value)}) - ${(percent * 100).toFixed(0)}%`;
-  // Dynamic font size calculation based on string length to prevent overflow
-  // Base size 14, minimum 11
-  const dynamicFontSize = Math.max(12, Math.min(16, 16 * (24 / Math.max(24, label.length))));
+  const { cx, cy, innerRadius, outerRadius, startAngle, endAngle, fill, payload, percent, value } = props;
 
   return (
     <g>
@@ -71,18 +56,15 @@ const renderActiveShape = (props: any) => {
         outerRadius={outerRadius + 10}
         fill={fill}
       />
-      <path d={`M${sx},${sy}L${mx},${my}L${ex},${ey}`} stroke={fill} fill="none" />
-      <circle cx={ex} cy={ey} r={2} fill={fill} stroke="none" />
       <text 
-        x={ex + (cos >= 0 ? 1 : -1) * 12} 
-        y={ey} 
-        textAnchor={textAnchor} 
-        fill="#111827" 
-        fontSize={dynamicFontSize}
-        fontWeight="600"
-        className="drop-shadow-[0_1px_1px_rgba(255,255,255,0.8)]"
+        x={cx} 
+        y={cy} 
+        textAnchor="middle" 
+        dominantBaseline="central"
       >
-        {label}
+        <tspan x={cx} dy="-1.4em" fontSize={11} fill="#6b7280" fontWeight="500">{payload.name}</tspan>
+        <tspan x={cx} dy="1.4em" fontSize={16} fill="#111827" fontWeight="700">{formatCurrency(value)}</tspan>
+        <tspan x={cx} dy="1.4em" fontSize={11} fill="#6b7280" fontWeight="500">{(percent * 100).toFixed(0)}%</tspan>
       </text>
     </g>
   );
@@ -135,6 +117,7 @@ export default function App() {
   const [isDeletePessoaModalOpen, setIsDeletePessoaModalOpen] = useState(false);
   const [personToDelete, setPersonToDelete] = useState<Pessoa | null>(null);
   const [isRestoreConfirmOpen, setIsRestoreConfirmOpen] = useState(false);
+  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
   const [pendingRestoreFile, setPendingRestoreFile] = useState<File | null>(null);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
   const [reviewItems, setReviewItems] = useState<any[]>([]);
@@ -1195,6 +1178,23 @@ CSV com colunas:
     }
   };
 
+  const handleResetData = async () => {
+    setIsLoading(true);
+    setLoadingMessage('Limpando todos os dados...');
+    try {
+      const response = await fetch('/api/reset', { method: 'POST' });
+      if (!response.ok) throw new Error('Erro ao resetar dados');
+      
+      setToast('Dados limpos com sucesso!');
+      await fetchData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro desconhecido');
+    } finally {
+      setIsLoading(false);
+      setIsResetConfirmOpen(false);
+    }
+  };
+
   const handleDownloadBackup = () => {
     window.location.href = '/api/backup';
   };
@@ -1607,6 +1607,13 @@ CSV com colunas:
             </div>
 
             <div className="absolute right-0 flex items-center gap-2">
+              <button
+                onClick={() => setIsResetConfirmOpen(true)}
+                className="p-2 rounded-xl bg-white shadow-soft border-soft text-gray-400 hover:text-red-600 hover:bg-red-50 transition-all"
+                title="Limpar Todos os Dados"
+              >
+                <Trash2 size={20} />
+              </button>
               <button
                 onClick={handleDownloadBackup}
                 className="p-2 rounded-xl bg-white shadow-soft border-soft text-gray-600 hover:text-indigo-600 hover:bg-indigo-50 transition-all"
@@ -2488,6 +2495,17 @@ CSV com colunas:
         message={`ATENÇÃO: Esta ação é irreversível. Ao excluir ${personToDelete?.nome}, TODOS os registros de despesas e entradas associados a esta pessoa serão apagados do sistema para sempre. Deseja prosseguir?`}
         confirmLabel="Sim, Excluir Tudo"
         cancelLabel="Não, Manter Dados"
+        type="danger"
+      />
+
+      <ConfirmModal
+        isOpen={isResetConfirmOpen}
+        onClose={() => setIsResetConfirmOpen(false)}
+        onConfirm={handleResetData}
+        title="Limpar Todos os Dados?"
+        message="Esta ação irá excluir permanentemente todas as pessoas, categorias, despesas e entradas. Esta ação não pode ser desfeita. Deseja continuar?"
+        confirmLabel="Sim, Limpar Tudo"
+        cancelLabel="Cancelar"
         type="danger"
       />
 

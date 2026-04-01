@@ -190,6 +190,24 @@ async function startServer() {
     }
   });
 
+  // Reset endpoint
+  app.post("/api/reset", (req, res) => {
+    try {
+      db.exec(`
+        DELETE FROM despesas;
+        DELETE FROM salarios;
+        DELETE FROM pessoas;
+        DELETE FROM categorias;
+        DELETE FROM logs;
+        DELETE FROM sqlite_sequence WHERE name IN ('despesas', 'salarios', 'pessoas', 'categorias', 'logs');
+      `);
+      res.json({ success: true });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Erro ao resetar dados" });
+    }
+  });
+
   // API Routes
   app.use("/api", (req, res, next) => {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');

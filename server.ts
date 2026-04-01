@@ -394,28 +394,41 @@ async function startServer() {
 
   app.patch("/api/despesas/:id", (req, res) => {
     const { id } = req.params;
-    const { valor } = req.body;
-
-    if (isNaN(Number(valor))) {
-      return res.status(400).json({ error: "Valor inválido." });
-    }
-
-    const roundedValor = Math.round(Number(valor) * 100) / 100;
+    const { valor, categoria_id } = req.body;
 
     try {
-      const oldRecord = db.prepare("SELECT valor, descricao, origem_id FROM despesas WHERE id = ?").get(id) as any;
+      const oldRecord = db.prepare("SELECT valor, descricao, origem_id, categoria_id FROM despesas WHERE id = ?").get(id) as any;
       if (!oldRecord) return res.status(404).json({ error: "Despesa não encontrada" });
 
-      db.prepare("UPDATE despesas SET valor = ? WHERE id = ?").run(roundedValor, id);
-      
-      // Log the change
-      db.prepare(
-        "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, pessoa_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
-      ).run(new Date().toISOString(), `Alteração de valor: Saída S${id} - ${oldRecord.descricao}`, oldRecord.valor, roundedValor, 'Despesa', id, oldRecord.origem_id);
+      if (valor !== undefined) {
+        if (isNaN(Number(valor))) {
+          return res.status(400).json({ error: "Valor inválido." });
+        }
+        const roundedValor = Math.round(Number(valor) * 100) / 100;
+        db.prepare("UPDATE despesas SET valor = ? WHERE id = ?").run(roundedValor, id);
+        
+        // Log the change
+        db.prepare(
+          "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, pessoa_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        ).run(new Date().toISOString(), `Alteração de valor: Saída S${id} - ${oldRecord.descricao}`, oldRecord.valor, roundedValor, 'Despesa', id, oldRecord.origem_id);
+      }
 
-      res.json({ success: true, valor: roundedValor });
+      if (categoria_id !== undefined) {
+        db.prepare("UPDATE despesas SET categoria_id = ? WHERE id = ?").run(categoria_id, id);
+        
+        const oldCat = db.prepare("SELECT nome FROM categorias WHERE id = ?").get(oldRecord.categoria_id) as any;
+        const newCat = db.prepare("SELECT nome FROM categorias WHERE id = ?").get(categoria_id) as any;
+        
+        // Log the change
+        db.prepare(
+          "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, pessoa_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        ).run(new Date().toISOString(), `Alteração de categoria: Saída S${id} - ${oldRecord.descricao} (${oldCat?.nome || 'Sem Categoria'} -> ${newCat?.nome || 'Sem Categoria'})`, 0, 0, 'Despesa', id, oldRecord.origem_id);
+      }
+
+      res.json({ success: true });
     } catch (e) {
-      res.status(500).json({ error: "Erro ao atualizar valor da despesa." });
+      console.error(e);
+      res.status(500).json({ error: "Erro ao atualizar despesa." });
     }
   });
 

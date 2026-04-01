@@ -129,6 +129,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [editingRecord, setEditingRecord] = useState<{ id: string; type: 'Entrada' | 'Saída'; value: string } | null>(null);
+  const [editingRecordCategory, setEditingRecordCategory] = useState<{ id: string; categoryId: number } | null>(null);
   const [personSearchTerm, setPersonSearchTerm] = useState('');
 
   useEffect(() => {
@@ -333,6 +334,27 @@ CSV com colunas:
   useEffect(() => {
     fetchData();
   }, []);
+
+  const handleUpdateCategory = async (id: string, newCategoryId: number) => {
+    setIsLoading(true);
+    try {
+      const despesaId = id.split('-')[1];
+      const res = await fetch(`/api/despesas/${despesaId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ categoria_id: newCategoryId })
+      });
+      if (!res.ok) throw new Error('Erro ao atualizar categoria');
+      
+      setToast('Categoria atualizada com sucesso!');
+      setEditingRecordCategory(null);
+      await fetchData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao atualizar categoria');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleUpdateValue = async () => {
     if (!editingRecord) return;
@@ -1534,14 +1556,14 @@ CSV com colunas:
             <SidebarButton 
               onClick={() => setIsPessoaModalOpen(true)} 
               icon={<Users size={20} />} 
-              label="Adicionar Pessoa" 
+              label="Gerenciar Pessoas" 
               color="text-indigo-600"
               hoverBg="hover:bg-indigo-100"
             />
             <SidebarButton 
               onClick={() => setIsCategoriaModalOpen(true)} 
               icon={<Tag size={20} />} 
-              label="Adicionar Categoria" 
+              label="Gerenciar Categoria" 
               color="text-amber-600"
               hoverBg="hover:bg-amber-100"
             />
@@ -1856,7 +1878,7 @@ CSV com colunas:
       </div>
 
       {/* Modals */}
-      <Modal isOpen={isPessoaModalOpen} onClose={() => setIsPessoaModalOpen(false)} title="Adicionar Pessoa">
+      <Modal isOpen={isPessoaModalOpen} onClose={() => setIsPessoaModalOpen(false)} title="Gerenciar Pessoas">
         <form onSubmit={handleAddPessoa} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700">Nome</label>
@@ -1894,7 +1916,7 @@ CSV com colunas:
       <Modal 
         isOpen={isDespesaModalOpen} 
         onClose={() => setIsDespesaModalOpen(false)} 
-        title="Adicionar Saída"
+        title="Adicionar Despesa"
         className="w-[90%] h-[90%] sm:w-[90%] sm:h-[90%]"
       >
         <form onSubmit={handleAddDespesa} className="space-y-4">
@@ -2049,7 +2071,7 @@ CSV com colunas:
         </form>
       </Modal>
 
-      <Modal isOpen={isCategoriaModalOpen} onClose={() => setIsCategoriaModalOpen(false)} title="Gerenciar Categorias">
+      <Modal isOpen={isCategoriaModalOpen} onClose={() => setIsCategoriaModalOpen(false)} title="Gerenciar Categoria">
         <div className="space-y-6">
           <form onSubmit={editingCategoria ? handleUpdateCategoria : handleAddCategoria} className="space-y-4">
             <div>
@@ -2313,6 +2335,7 @@ CSV com colunas:
                       <th className="px-4 py-3 font-semibold">Data Compra</th>
                       <th className="px-4 py-3 font-semibold">Data Pagto</th>
                       <th className="px-4 py-3 font-semibold">Descrição</th>
+                      <th className="px-4 py-3 font-semibold">Categoria</th>
                       <th className="px-4 py-3 font-semibold">Valor</th>
                       <th className="px-4 py-3 font-semibold">Tipo</th>
                     </tr>
@@ -2325,8 +2348,41 @@ CSV com colunas:
                           <td className="px-4 py-3 whitespace-nowrap text-xs font-medium text-indigo-600">{m.formattedDate}</td>
                           <td className="px-4 py-3">
                             <div className="font-medium">{m.descricao}</div>
-                            {m.categoria_nome && (
-                              <div className="text-xs text-gray-400">{m.categoria_nome}</div>
+                          </td>
+                          <td className="px-4 py-3">
+                            {m.tipo === 'Saída' ? (
+                              editingRecordCategory?.id === m.id ? (
+                                <div className="flex items-center gap-2">
+                                  <select
+                                    autoFocus
+                                    value={editingRecordCategory.categoryId}
+                                    onChange={e => setEditingRecordCategory({ ...editingRecordCategory, categoryId: parseInt(e.target.value) })}
+                                    onBlur={() => handleUpdateCategory(m.id, editingRecordCategory.categoryId)}
+                                    onKeyDown={e => {
+                                      if (e.key === 'Enter') handleUpdateCategory(m.id, editingRecordCategory.categoryId);
+                                      if (e.key === 'Escape') setEditingRecordCategory(null);
+                                    }}
+                                    className="rounded-lg border-gray-200 bg-gray-50 p-1 text-xs outline-none focus:ring-2 focus:ring-indigo-500"
+                                  >
+                                    {sortedCategorias.map(cat => (
+                                      <option key={cat.id} value={cat.id}>{cat.nome}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-2 group/cat">
+                                  <span className="text-xs text-gray-600">{m.categoria_nome || 'Sem Categoria'}</span>
+                                  <button
+                                    onClick={() => setEditingRecordCategory({ id: m.id, categoryId: m.categoria_id })}
+                                    className="p-1 text-gray-400 hover:text-indigo-600 opacity-0 group-hover/cat:opacity-100 transition-opacity"
+                                    title="Editar Categoria"
+                                  >
+                                    <Pencil size={12} />
+                                  </button>
+                                </div>
+                              )
+                            ) : (
+                              <span className="text-xs text-gray-400">-</span>
                             )}
                           </td>
                           <td className={cn(

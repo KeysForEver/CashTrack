@@ -1633,167 +1633,173 @@ CSV com colunas:
             </div>
           </header>
 
-      {/* Yellow Balance Card */}
-      {hasRecords && (
-        <div className="mb-6 w-full lg:w-1/3 mx-auto rounded-2xl bg-yellow-100 p-4 shadow-soft border-2 border-yellow-200 shrink-0">
-          <div className="mb-2 flex items-center gap-2 text-yellow-800">
-            <TrendingUp size={20} />
-            <h2 className="text-lg font-bold">Ajustes de Saldo</h2>
-          </div>
-          {balances.length > 0 ? (
-            <ul className="space-y-1">
-              {balances.map((adj, i) => (
-                <li key={i} className="text-sm text-yellow-900 font-medium">• {adj}</li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-sm text-yellow-800 italic">Tudo equilibrado! Ninguém deve ninguém.</p>
-          )}
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 shrink-0 overflow-y-auto max-h-[35vh] pr-2 custom-scrollbar">
-        {/* Person Cards */}
-        {personStats.map(p => (
-          <div 
-            key={p.id} 
-            onClick={() => {
-              setSelectedPersonId(p.id);
-              setIsPersonDetailModalOpen(true);
-            }}
-            className="rounded-2xl bg-white p-6 shadow-soft border-soft overflow-hidden relative cursor-pointer hover:shadow-lg hover:scale-[1.02] transition-all group"
-            style={{ '--hover-bg': `${p.cor}15` } as any}
-          >
-            <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity" style={{ backgroundColor: `${p.cor}15` }}></div>
-            <div className="absolute top-0 left-0 w-full h-2" style={{ backgroundColor: p.cor }}></div>
-            <div className="flex justify-between items-start mb-4">
-              <h3 className="text-xl font-bold" style={{ color: p.cor }}>{p.nome}</h3>
-              <div className="flex items-center gap-2">
-                <ChevronDown size={18} className="text-gray-300 group-hover:text-gray-500 transition-colors" />
+      <div className="flex-1 flex gap-6 min-h-0">
+        {/* Left Column: Balance and Person Cards */}
+        <div className="flex-1 flex flex-col gap-4 overflow-y-auto pr-2 custom-scrollbar pb-6">
+          {/* Yellow Balance Card */}
+          {hasRecords && (
+            <div className="w-full rounded-2xl bg-yellow-100 p-4 shadow-soft border-2 border-yellow-200 shrink-0">
+              <div className="mb-2 flex items-center gap-2 text-yellow-800">
+                <TrendingUp size={20} />
+                <h2 className="text-lg font-bold">Ajustes de Saldo</h2>
               </div>
-            </div>
-            <div className="space-y-3">
-              <div className="flex justify-between items-center">
-                <span className="text-gray-500">Total Gasto:</span>
-                <span className="font-bold text-rose-600">{formatCurrency(p.totalSpent)}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-gray-500">Entrada Recebida:</span>
-                <span className="font-bold text-emerald-600">{formatCurrency(p.totalSalary)}</span>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {hasRecords && (
-        <div className="mt-6 flex flex-col flex-1 min-h-0">
-          <div className="flex items-center justify-between mb-4 shrink-0">
-            <h2 className="text-lg font-bold text-gray-800">
-              {activeChart === 'bar' ? 'Gastos por Dia' : 'Gastos por Categoria'}
-            </h2>
-            <div className="flex items-center gap-1 bg-white p-1 rounded-xl shadow-soft border-soft">
-              <button
-                onClick={() => setActiveChart('bar')}
-                className={cn(
-                  "p-2 rounded-lg transition-all",
-                  activeChart === 'bar' ? "bg-indigo-600 text-white shadow-md" : "text-gray-400 hover:text-gray-600 hover:bg-gray-50"
-                )}
-                title="Gráfico de Barras"
-              >
-                <BarChartIcon size={18} />
-              </button>
-              <button
-                onClick={() => setActiveChart('pie')}
-                className={cn(
-                  "p-2 rounded-lg transition-all",
-                  activeChart === 'pie' ? "bg-indigo-600 text-white shadow-md" : "text-gray-400 hover:text-gray-600 hover:bg-gray-50"
-                )}
-                title="Gráfico de Pizza"
-              >
-                <PieChartIcon size={18} />
-              </button>
-            </div>
-          </div>
-
-          <div className="flex-1 min-h-0 relative">
-            <AnimatePresence mode="wait">
-              {activeChart === 'bar' ? (
-                <motion.div
-                  key="bar"
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 20 }}
-                  transition={{ duration: 0.2 }}
-                  className="absolute inset-0 rounded-2xl bg-white p-4 shadow-soft border-soft flex flex-col"
-                >
-                  <div className="flex-1 w-full min-h-0">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={barChartData} margin={{ top: 10, right: 130, left: 0, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                        <XAxis dataKey="day" tick={{ fontSize: 11 }} />
-                        <YAxis tickFormatter={(val) => formatCurrency(val).replace('R$', '').trim()} tick={{ fontSize: 11 }} />
-                        <Tooltip 
-                          formatter={(value: number) => [formatCurrency(value), 'Valor']}
-                          contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                          cursor={{ fill: '#f3f4f6' }}
-                        />
-                        <Legend 
-                          verticalAlign="middle" 
-                          align="right" 
-                          layout="vertical" 
-                          wrapperStyle={{ 
-                            fontSize: '15px', 
-                            fontWeight: '600', 
-                            paddingLeft: '20px',
-                            width: '140px'
-                          }} 
-                        />
-                        {pessoas.map(p => (
-                          <Bar key={p.id} dataKey={p.nome} stackId="a" fill={p.cor} radius={[0, 0, 0, 0]} />
-                        ))}
-                        <Bar dataKey="Dividir" stackId="a" fill="#ef4444" radius={[4, 4, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </motion.div>
+              {balances.length > 0 ? (
+                <ul className="space-y-1">
+                  {balances.map((adj, i) => (
+                    <li key={i} className="text-sm text-yellow-900 font-medium">• {adj}</li>
+                  ))}
+                </ul>
               ) : (
-                <motion.div
-                  key="pie"
-                  initial={{ opacity: 0, x: 20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -20 }}
-                  transition={{ duration: 0.2 }}
-                  className="absolute inset-0 rounded-2xl bg-white p-4 shadow-soft border-soft flex flex-col"
-                >
-                  <div className="flex-1 w-full min-h-0">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          activeIndex={activePieIndex}
-                          activeShape={renderActiveShape}
-                          data={pieChartData}
-                          cx="50%"
-                          cy="45%"
-                          innerRadius="40%"
-                          outerRadius="65%"
-                          fill="#8884d8"
-                          dataKey="value"
-                          onMouseEnter={(_, index) => setActivePieIndex(index)}
-                        >
-                          {pieChartData.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={PALETTES[0].colors[index % PALETTES[0].colors.length]} stroke="#fff" strokeWidth={2} />
-                          ))}
-                        </Pie>
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
-                </motion.div>
+                <p className="text-sm text-yellow-800 italic">Tudo equilibrado! Ninguém deve ninguém.</p>
               )}
-            </AnimatePresence>
+            </div>
+          )}
+
+          {/* Person Cards Stack */}
+          <div className="flex flex-col gap-4">
+            {personStats.map(p => (
+              <div 
+                key={p.id} 
+                onClick={() => {
+                  setSelectedPersonId(p.id);
+                  setIsPersonDetailModalOpen(true);
+                }}
+                className="rounded-2xl bg-white p-6 shadow-soft border-soft overflow-hidden relative cursor-pointer hover:shadow-lg hover:scale-[1.02] transition-all group shrink-0"
+                style={{ '--hover-bg': `${p.cor}15` } as any}
+              >
+                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity" style={{ backgroundColor: `${p.cor}15` }}></div>
+                <div className="absolute top-0 left-0 w-full h-2" style={{ backgroundColor: p.cor }}></div>
+                <div className="flex justify-between items-start mb-4">
+                  <h3 className="text-xl font-bold" style={{ color: p.cor }}>{p.nome}</h3>
+                  <div className="flex items-center gap-2">
+                    <ChevronDown size={18} className="text-gray-300 group-hover:text-gray-500 transition-colors" />
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-500">Total Gasto:</span>
+                    <span className="font-bold text-rose-600">{formatCurrency(p.totalSpent)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-500">Entrada Recebida:</span>
+                    <span className="font-bold text-emerald-600">{formatCurrency(p.totalSalary)}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
-      )}
+
+        {/* Right Column: Charts */}
+        {hasRecords && (
+          <div className="flex-1 flex flex-col min-h-0">
+            <div className="flex items-center justify-between mb-4 shrink-0">
+              <h2 className="text-lg font-bold text-gray-800">
+                {activeChart === 'bar' ? 'Gastos por Dia' : 'Gastos por Categoria'}
+              </h2>
+              <div className="flex items-center gap-1 bg-white p-1 rounded-xl shadow-soft border-soft">
+                <button
+                  onClick={() => setActiveChart('bar')}
+                  className={cn(
+                    "p-2 rounded-lg transition-all",
+                    activeChart === 'bar' ? "bg-indigo-600 text-white shadow-md" : "text-gray-400 hover:text-gray-600 hover:bg-gray-50"
+                  )}
+                  title="Gráfico de Barras"
+                >
+                  <BarChartIcon size={18} />
+                </button>
+                <button
+                  onClick={() => setActiveChart('pie')}
+                  className={cn(
+                    "p-2 rounded-lg transition-all",
+                    activeChart === 'pie' ? "bg-indigo-600 text-white shadow-md" : "text-gray-400 hover:text-gray-600 hover:bg-gray-50"
+                  )}
+                  title="Gráfico de Pizza"
+                >
+                  <PieChartIcon size={18} />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 min-h-0 relative">
+              <AnimatePresence mode="wait">
+                {activeChart === 'bar' ? (
+                  <motion.div
+                    key="bar"
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: 20 }}
+                    transition={{ duration: 0.2 }}
+                    className="absolute inset-0 rounded-2xl bg-white p-4 shadow-soft border-soft flex flex-col"
+                  >
+                    <div className="flex-1 w-full min-h-0">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={barChartData} margin={{ top: 10, right: 130, left: 0, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                          <XAxis dataKey="day" tick={{ fontSize: 11 }} />
+                          <YAxis tickFormatter={(val) => formatCurrency(val).replace('R$', '').trim()} tick={{ fontSize: 11 }} />
+                          <Tooltip 
+                            formatter={(value: number) => [formatCurrency(value), 'Valor']}
+                            contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                            cursor={{ fill: '#f3f4f6' }}
+                          />
+                          <Legend 
+                            verticalAlign="middle" 
+                            align="right" 
+                            layout="vertical" 
+                            wrapperStyle={{ 
+                              fontSize: '15px', 
+                              fontWeight: '600', 
+                              paddingLeft: '20px',
+                              width: '140px'
+                            }} 
+                          />
+                          {pessoas.map(p => (
+                            <Bar key={p.id} dataKey={p.nome} stackId="a" fill={p.cor} radius={[0, 0, 0, 0]} />
+                          ))}
+                          <Bar dataKey="Dividir" stackId="a" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key="pie"
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -20 }}
+                    transition={{ duration: 0.2 }}
+                    className="absolute inset-0 rounded-2xl bg-white p-4 shadow-soft border-soft flex flex-col"
+                  >
+                    <div className="flex-1 w-full min-h-0">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            activeIndex={activePieIndex}
+                            activeShape={renderActiveShape}
+                            data={pieChartData}
+                            cx="50%"
+                            cy="45%"
+                            innerRadius="40%"
+                            outerRadius="65%"
+                            fill="#8884d8"
+                            dataKey="value"
+                            onMouseEnter={(_, index) => setActivePieIndex(index)}
+                          >
+                            {pieChartData.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={PALETTES[0].colors[index % PALETTES[0].colors.length]} stroke="#fff" strokeWidth={2} />
+                            ))}
+                          </Pie>
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Modals */}
       <Modal isOpen={isPessoaModalOpen} onClose={() => setIsPessoaModalOpen(false)} title="Adicionar Pessoa">

@@ -149,11 +149,20 @@ async function startServer() {
   normalizeDates(db);
   seedData(db);
 
+  const apiRouter = express.Router();
+
+  // Middleware for all API routes
+  apiRouter.use((req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    next();
+  });
+
   // Backup endpoint
-  app.get("/api/backup", (req, res) => {
+  apiRouter.get("/backup", (req, res) => {
     try {
       const zip = new AdmZip();
-      // Add the sqlite file to the zip
       zip.addLocalFile(DB_PATH);
       const buffer = zip.toBuffer();
       
@@ -166,7 +175,7 @@ async function startServer() {
   });
 
   // Restore endpoint
-  app.post("/api/restore", upload.single("backup"), (req, res) => {
+  apiRouter.post("/restore", upload.single("backup"), (req, res) => {
     if (!req.file) {
       return res.status(400).json({ error: "Nenhum arquivo enviado" });
     }
@@ -176,7 +185,6 @@ async function startServer() {
       const zip = new AdmZip(filePath);
       const zipEntries = zip.getEntries();
       
-      // Find the database file in the zip
       const dbEntry = zipEntries.find(entry => entry.entryName === "database.sqlite");
       
       if (!dbEntry) {
@@ -184,18 +192,11 @@ async function startServer() {
         return res.status(400).json({ error: "Arquivo de backup inválido (database.sqlite não encontrado)" });
       }
 
-      // Close current connection
       db.close();
-
-      // Extract and replace
       zip.extractEntryTo(dbEntry, ".", false, true);
-
-      // Reopen connection
       db = new Database(DB_PATH);
       initDb(db);
       normalizeDates(db);
-
-      // Clean up upload
       fs.unlinkSync(filePath);
 
       res.json({ success: true });
@@ -206,7 +207,7 @@ async function startServer() {
   });
 
   // Reset endpoint
-  app.post("/api/reset", (req, res) => {
+  apiRouter.post("/reset", (req, res) => {
     try {
       db.exec(`
         DELETE FROM despesas;
@@ -223,24 +224,15 @@ async function startServer() {
     }
   });
 
-  // API Routes
-  app.use("/api", (req, res, next) => {
-    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-    res.setHeader('Pragma', 'no-cache');
-    res.setHeader('Expires', '0');
-    next();
-  });
-
-  app.get("/api/pessoas", (req, res) => {
+  apiRouter.get("/pessoas", (req, res) => {
     const data = db.prepare("SELECT * FROM pessoas").all();
     res.json(data);
   });
 
-  app.post("/api/pessoas", (req, res) => {
+  apiRouter.post("/pessoas", (req, res) => {
     const { nome, cor } = req.body;
     const result = db.prepare("INSERT INTO pessoas (nome, cor) VALUES (?, ?)").run(nome, cor);
     
-    // Log the creation
     db.prepare(
       "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, pessoa_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
     ).run(new Date().toISOString(), `Nova Pessoa: ${nome}`, 0, 0, 'Pessoa', result.lastInsertRowid, result.lastInsertRowid);
@@ -248,17 +240,16 @@ async function startServer() {
     res.json({ id: result.lastInsertRowid, nome, cor });
   });
 
-  app.get("/api/categorias", (req, res) => {
+  apiRouter.get("/categorias", (req, res) => {
     const data = db.prepare("SELECT * FROM categorias").all();
     res.json(data);
   });
 
-  app.post("/api/categorias", (req, res) => {
+  apiRouter.post("/categorias", (req, res) => {
     const { nome } = req.body;
     try {
       const result = db.prepare("INSERT INTO categorias (nome) VALUES (?)").run(nome);
       
-      // Log the creation
       db.prepare(
         "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, categoria_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
       ).run(new Date().toISOString(), `Nova Categoria: ${nome}`, 0, 0, 'Categoria', result.lastInsertRowid, result.lastInsertRowid);
@@ -269,14 +260,13 @@ async function startServer() {
     }
   });
 
-  app.put("/api/categorias/:id", (req, res) => {
+  apiRouter.put("/categorias/:id", (req, res) => {
     const { id } = req.params;
     const { nome } = req.body;
     try {
-      const old = db.prepare("SELECT * FROM categorias WHERE id = ?").get(id);
+      const old = db.prepare("SELECT * FROM categorias WHERE id = ?").get(id) as any;
       db.prepare("UPDATE categorias SET nome = ? WHERE id = ?").run(nome, id);
       
-      // Log the update
       db.prepare(
         "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, categoria_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
       ).run(new Date().toISOString(), `Categoria Alterada: ${old.nome} -> ${nome}`, 0, 0, 'Categoria', id, id);
@@ -287,12 +277,11 @@ async function startServer() {
     }
   });
 
-  app.delete("/api/categorias/:id", (req, res) => {
+  apiRouter.delete("/categorias/:id", (req, res) => {
     const { id } = req.params;
     try {
-      const old = db.prepare("SELECT * FROM categorias WHERE id = ?").get(id);
+      const old = db.prepare("SELECT * FROM categorias WHERE id = ?").get(id) as any;
       
-      // Check if there are expenses using this category
       const count = db.prepare("SELECT COUNT(*) as count FROM despesas WHERE categoria_id = ?").get(id).count;
       if (count > 0) {
         return res.status(400).json({ error: "Não é possível excluir uma categoria que possui despesas vinculadas" });
@@ -300,7 +289,6 @@ async function startServer() {
 
       db.prepare("DELETE FROM categorias WHERE id = ?").run(id);
       
-      // Log the deletion
       db.prepare(
         "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, categoria_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
       ).run(new Date().toISOString(), `Categoria Excluída: ${old.nome}`, 0, 0, 'Categoria', id, id);
@@ -311,7 +299,7 @@ async function startServer() {
     }
   });
 
-  app.get("/api/despesas", (req, res) => {
+  apiRouter.get("/despesas", (req, res) => {
     const data = db.prepare(`
       SELECT d.*, p.nome as origem_nome, c.nome as categoria_nome 
       FROM despesas d
@@ -321,7 +309,7 @@ async function startServer() {
     res.json(data);
   });
 
-  app.post("/api/despesas", (req, res) => {
+  apiRouter.post("/despesas", (req, res) => {
     const { data_compra, data_pagamento, valor, descricao, origem_id, destino, categoria_id } = req.body;
     
     if (!data_compra || !data_pagamento || isNaN(Number(valor)) || !origem_id || !categoria_id) {
@@ -330,7 +318,6 @@ async function startServer() {
 
     const roundedValor = Math.round(Number(valor) * 100) / 100;
     
-    // Check for duplicate
     const existing = db.prepare(`
       SELECT id FROM despesas 
       WHERE data_compra = ? AND data_pagamento = ? AND valor = ? AND descricao = ? AND origem_id = ? AND destino = ? AND categoria_id = ?
@@ -344,7 +331,6 @@ async function startServer() {
       "INSERT INTO despesas (data_compra, data_pagamento, valor, descricao, origem_id, destino, categoria_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
     ).run(data_compra, data_pagamento, roundedValor, descricao || '', origem_id, destino, categoria_id);
 
-    // Log the creation
     db.prepare(
       "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, pessoa_id, data_registro, destino, categoria_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ).run(new Date().toISOString(), `Lançamento inicial: Saída S${result.lastInsertRowid} - ${descricao || 'Despesa'}`, 0, roundedValor, 'Despesa', result.lastInsertRowid, origem_id, data_pagamento, destino, categoria_id);
@@ -352,7 +338,7 @@ async function startServer() {
     res.json({ id: result.lastInsertRowid, data_compra, data_pagamento, valor: roundedValor, descricao, origem_id, destino, categoria_id });
   });
 
-  app.get("/api/salarios", (req, res) => {
+  apiRouter.get("/salarios", (req, res) => {
     const data = db.prepare(`
       SELECT s.*, p.nome as recebedor_nome 
       FROM salarios s
@@ -361,7 +347,7 @@ async function startServer() {
     res.json(data);
   });
 
-  app.post("/api/salarios", (req, res) => {
+  apiRouter.post("/salarios", (req, res) => {
     const { data_pagamento, valor, descricao, recebedor_id } = req.body;
     
     if (!data_pagamento || isNaN(Number(valor)) || !recebedor_id) {
@@ -370,7 +356,6 @@ async function startServer() {
 
     const roundedValor = Math.round(Number(valor) * 100) / 100;
 
-    // Check for duplicate
     const existing = db.prepare(`
       SELECT id FROM salarios 
       WHERE data_pagamento = ? AND valor = ? AND descricao = ? AND recebedor_id = ?
@@ -384,7 +369,6 @@ async function startServer() {
       "INSERT INTO salarios (data_pagamento, valor, descricao, recebedor_id) VALUES (?, ?, ?, ?)"
     ).run(data_pagamento, roundedValor, descricao || '', recebedor_id);
 
-    // Log the creation
     db.prepare(
       "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, pessoa_id, data_registro, destino) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ).run(new Date().toISOString(), `Lançamento inicial: Entrada E${result.lastInsertRowid} - ${descricao || 'Entrada'}`, 0, roundedValor, 'Entrada', result.lastInsertRowid, recebedor_id, data_pagamento, 'Entrada');
@@ -392,7 +376,7 @@ async function startServer() {
     res.json({ id: result.lastInsertRowid, data_pagamento, valor: roundedValor, descricao, recebedor_id });
   });
 
-  app.patch("/api/despesas/:id", (req, res) => {
+  apiRouter.patch("/despesas/:id", (req, res) => {
     const { id } = req.params;
     const { valor, categoria_id } = req.body;
 
@@ -407,7 +391,6 @@ async function startServer() {
         const roundedValor = Math.round(Number(valor) * 100) / 100;
         db.prepare("UPDATE despesas SET valor = ? WHERE id = ?").run(roundedValor, id);
         
-        // Log the change
         db.prepare(
           "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, pessoa_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
         ).run(new Date().toISOString(), `Alteração de valor: Saída S${id} - ${oldRecord.descricao}`, oldRecord.valor, roundedValor, 'Despesa', id, oldRecord.origem_id);
@@ -419,7 +402,6 @@ async function startServer() {
         const oldCat = db.prepare("SELECT nome FROM categorias WHERE id = ?").get(oldRecord.categoria_id) as any;
         const newCat = db.prepare("SELECT nome FROM categorias WHERE id = ?").get(categoria_id) as any;
         
-        // Log the change
         db.prepare(
           "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, pessoa_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
         ).run(new Date().toISOString(), `Alteração de categoria: Saída S${id} - ${oldRecord.descricao} (${oldCat?.nome || 'Sem Categoria'} -> ${newCat?.nome || 'Sem Categoria'})`, 0, 0, 'Despesa', id, oldRecord.origem_id);
@@ -432,7 +414,7 @@ async function startServer() {
     }
   });
 
-  app.patch("/api/salarios/:id", (req, res) => {
+  apiRouter.patch("/salarios/:id", (req, res) => {
     const { id } = req.params;
     const { valor } = req.body;
 
@@ -448,7 +430,6 @@ async function startServer() {
 
       db.prepare("UPDATE salarios SET valor = ? WHERE id = ?").run(roundedValor, id);
 
-      // Log the change
       db.prepare(
         "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, pessoa_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
       ).run(new Date().toISOString(), `Alteração de valor: Entrada E${id} - ${oldRecord.descricao}`, oldRecord.valor, roundedValor, 'Entrada', id, oldRecord.recebedor_id);
@@ -459,7 +440,7 @@ async function startServer() {
     }
   });
 
-  app.delete("/api/despesas/:id", (req, res) => {
+  apiRouter.delete("/despesas/:id", (req, res) => {
     const { id } = req.params;
     try {
       const oldRecord = db.prepare("SELECT valor, descricao, origem_id FROM despesas WHERE id = ?").get(id) as any;
@@ -467,7 +448,6 @@ async function startServer() {
 
       db.prepare("DELETE FROM despesas WHERE id = ?").run(id);
 
-      // Log the deletion
       db.prepare(
         "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, pessoa_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
       ).run(new Date().toISOString(), `Exclusão: Saída S${id} - ${oldRecord.descricao}`, oldRecord.valor, 0, 'Despesa', id, oldRecord.origem_id);
@@ -478,7 +458,7 @@ async function startServer() {
     }
   });
 
-  app.delete("/api/salarios/:id", (req, res) => {
+  apiRouter.delete("/salarios/:id", (req, res) => {
     const { id } = req.params;
     try {
       const oldRecord = db.prepare("SELECT valor, descricao, recebedor_id FROM salarios WHERE id = ?").get(id) as any;
@@ -486,7 +466,6 @@ async function startServer() {
 
       db.prepare("DELETE FROM salarios WHERE id = ?").run(id);
 
-      // Log the deletion
       db.prepare(
         "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, pessoa_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
       ).run(new Date().toISOString(), `Exclusão: Entrada E${id} - ${oldRecord.descricao}`, oldRecord.valor, 0, 'Entrada', id, oldRecord.recebedor_id);
@@ -497,7 +476,7 @@ async function startServer() {
     }
   });
 
-  app.get("/api/logs", (req, res) => {
+  apiRouter.get("/logs", (req, res) => {
     const data = db.prepare(`
       SELECT l.*, p.nome as pessoa_nome, c.nome as categoria_nome 
       FROM logs l
@@ -508,15 +487,12 @@ async function startServer() {
     res.json(data);
   });
 
-  app.delete("/api/pessoas/:id", (req, res) => {
+  apiRouter.delete("/pessoas/:id", (req, res) => {
     const { id } = req.params;
     
     const deleteTransaction = db.transaction(() => {
-      // Delete associated expenses
       db.prepare("DELETE FROM despesas WHERE origem_id = ?").run(id);
-      // Delete associated salaries
       db.prepare("DELETE FROM salarios WHERE recebedor_id = ?").run(id);
-      // Delete the person
       db.prepare("DELETE FROM pessoas WHERE id = ?").run(id);
     });
 
@@ -527,6 +503,8 @@ async function startServer() {
       res.status(500).json({ error: "Erro ao excluir pessoa e seus dados." });
     }
   });
+
+  app.use("/api", apiRouter);
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {

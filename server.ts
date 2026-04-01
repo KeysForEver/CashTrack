@@ -97,8 +97,42 @@ async function startServer() {
     }
   };
 
+  const seedData = (database: Database.Database) => {
+    const pessoasCount = database.prepare("SELECT COUNT(*) as count FROM pessoas").get().count;
+    if (pessoasCount === 0) {
+      console.log("Seeding example data...");
+      
+      // Insert Pessoas
+      const p1 = database.prepare("INSERT INTO pessoas (nome, cor) VALUES (?, ?)").run("Wallace", "#4f46e5");
+      const p2 = database.prepare("INSERT INTO pessoas (nome, cor) VALUES (?, ?)").run("Janis", "#ec4899");
+      
+      // Insert Categorias
+      const c1 = database.prepare("INSERT INTO categorias (nome) VALUES (?)").run("Alimentação");
+      const c2 = database.prepare("INSERT INTO categorias (nome) VALUES (?)").run("Lazer");
+      const c3 = database.prepare("INSERT INTO categorias (nome) VALUES (?)").run("Transporte");
+      const c4 = database.prepare("INSERT INTO categorias (nome) VALUES (?)").run("Aluguel");
+      
+      const today = new Date().toISOString().split('T')[0];
+      const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+      
+      // Insert Salarios (Entradas)
+      database.prepare("INSERT INTO salarios (data, valor, descricao, recebedor_id) VALUES (?, ?, ?, ?)").run(yesterday, 5000, "Salário Mensal", p1.lastInsertRowid);
+      database.prepare("INSERT INTO salarios (data, valor, descricao, recebedor_id) VALUES (?, ?, ?, ?)").run(yesterday, 4500, "Salário Mensal", p2.lastInsertRowid);
+      
+      // Insert Despesas (Saídas)
+      database.prepare("INSERT INTO despesas (data, valor, descricao, origem_id, destino, categoria_id) VALUES (?, ?, ?, ?, ?, ?)").run(today, 150, "Jantar", p1.lastInsertRowid, "Dividir", c1.lastInsertRowid);
+      database.prepare("INSERT INTO despesas (data, valor, descricao, origem_id, destino, categoria_id) VALUES (?, ?, ?, ?, ?, ?)").run(today, 80, "Cinema", p2.lastInsertRowid, "Dividir", c2.lastInsertRowid);
+      database.prepare("INSERT INTO despesas (data, valor, descricao, origem_id, destino, categoria_id) VALUES (?, ?, ?, ?, ?, ?)").run(yesterday, 2000, "Aluguel Apartamento", p1.lastInsertRowid, "Dividir", c4.lastInsertRowid);
+      database.prepare("INSERT INTO despesas (data, valor, descricao, origem_id, destino, categoria_id) VALUES (?, ?, ?, ?, ?, ?)").run(yesterday, 50, "Uber", p2.lastInsertRowid, p1.lastInsertRowid.toString(), c3.lastInsertRowid);
+      database.prepare("INSERT INTO despesas (data, valor, descricao, origem_id, destino, categoria_id) VALUES (?, ?, ?, ?, ?, ?)").run(yesterday, 120, "Supermercado", p1.lastInsertRowid, "Dividir", c1.lastInsertRowid);
+      database.prepare("INSERT INTO despesas (data, valor, descricao, origem_id, destino, categoria_id) VALUES (?, ?, ?, ?, ?, ?)").run(today, 45, "Farmácia", p2.lastInsertRowid, "Dividir", c1.lastInsertRowid);
+      database.prepare("INSERT INTO despesas (data, valor, descricao, origem_id, destino, categoria_id) VALUES (?, ?, ?, ?, ?, ?)").run(today, 200, "Presente", p1.lastInsertRowid, p2.lastInsertRowid.toString(), c2.lastInsertRowid);
+    }
+  };
+
   initDb(db);
   normalizeDates(db);
+  seedData(db);
 
   // Backup endpoint
   app.get("/api/backup", (req, res) => {

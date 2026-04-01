@@ -1635,7 +1635,7 @@ CSV com colunas:
 
       <div className="flex-1 flex gap-6 min-h-0">
         {/* Left Column: Balance and Person Cards */}
-        <div className="flex-1 flex flex-col gap-4 overflow-y-auto pr-2 custom-scrollbar pb-6">
+        <div className="flex-[0.4] flex flex-col gap-4 overflow-y-auto pr-2 custom-scrollbar pb-6">
           {/* Yellow Balance Card */}
           {hasRecords && (
             <div className="w-full rounded-2xl bg-yellow-100 p-4 shadow-soft border-2 border-yellow-200 shrink-0">
@@ -1692,11 +1692,8 @@ CSV com colunas:
 
         {/* Right Column: Charts */}
         {hasRecords && (
-          <div className="flex-1 flex flex-col min-h-0">
-            <div className="flex items-center justify-between mb-4 shrink-0">
-              <h2 className="text-lg font-bold text-gray-800">
-                {activeChart === 'bar' ? 'Gastos por Dia' : 'Gastos por Categoria'}
-              </h2>
+          <div className="flex-[0.6] flex flex-col min-h-0">
+            <div className="flex items-center justify-end mb-4 shrink-0">
               <div className="flex items-center gap-1 bg-white p-1 rounded-xl shadow-soft border-soft">
                 <button
                   onClick={() => setActiveChart('bar')}

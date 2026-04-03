@@ -2474,7 +2474,7 @@ CSV com colunas:
               <p className="text-sm text-gray-600">
                 Revise as transações abaixo e selecione o <strong>Destino</strong> para cada despesa.
               </p>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center flex-wrap gap-2">
                 <button
                   onClick={() => {
                     const newItems = reviewItems.map(item => ({
@@ -2489,6 +2489,26 @@ CSV com colunas:
                   <Layers size={14} />
                   Dividir Todos
                 </button>
+
+                {pessoas.map(p => (
+                  <button
+                    key={p.id}
+                    onClick={() => {
+                      const newItems = reviewItems.map(item => ({
+                        ...item,
+                        destino: item.tipo === 'Saída' ? p.id.toString() : item.destino
+                      }));
+                      setReviewItems(newItems);
+                    }}
+                    style={{ color: p.cor, backgroundColor: `${p.cor}15` }}
+                    className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-all active:scale-95 hover:opacity-80"
+                    title={`Marcar todas as saídas para ${p.nome}`}
+                  >
+                    <Users size={14} />
+                    {p.nome}
+                  </button>
+                ))}
+
                 <button
                   onClick={() => {
                     const newItems = reviewItems.map(item => ({

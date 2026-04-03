@@ -1317,8 +1317,21 @@ CSV com colunas:
 
     const reader = new FileReader();
     reader.onload = (event) => {
-      const text = event.target?.result as string;
-      const lines = text.split('\n').filter(line => line.trim() !== '');
+      const buffer = event.target?.result as ArrayBuffer;
+      
+      // Try UTF-8 first
+      let decoder = new TextDecoder('utf-8');
+      let text = decoder.decode(buffer);
+      
+      // If we see the replacement character or common corruption for "Saída", try ISO-8859-1
+      if (text.includes('') || text.includes('\ufffd')) {
+        decoder = new TextDecoder('iso-8859-1');
+        text = decoder.decode(buffer);
+      }
+
+      const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
+      if (lines.length === 0) return;
+
       const startIdx = lines[0].toLowerCase().includes('data') ? 1 : 0;
 
       const items: any[] = [];
@@ -1326,35 +1339,46 @@ CSV com colunas:
         const parts = lines[i].split(';');
         if (parts.length < 5) continue;
         
-        const [dataStr, descricao, categoriaNome, valorStr, tipo] = parts;
-        if (!dataStr || !valorStr || !tipo) continue;
+        const [dataStr, descricao, categoriaNome, valorStr, tipoRaw] = parts;
+        if (!dataStr || !valorStr || !tipoRaw) continue;
 
-        const dateParts = dataStr.split('/');
+        const dateParts = dataStr.trim().split('/');
         if (dateParts.length !== 3) continue;
         const [day, month, year] = dateParts;
-        const formattedDate = `${year}-${month}-${day}`;
+        const formattedDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
 
-        const valor = parseFloat(valorStr.replace(',', '.'));
+        // Robust value parsing for Brazilian format (1.234,56 or 1234,56 or 1234.56)
+        let cleanValor = valorStr.trim().replace(/[R$\s]/g, '');
+        if (cleanValor.includes(',') && cleanValor.includes('.')) {
+          // Likely 1.234,56 -> remove dot, replace comma with dot
+          cleanValor = cleanValor.replace(/\./g, '').replace(',', '.');
+        } else if (cleanValor.includes(',')) {
+          // Likely 123,45 -> replace comma with dot
+          cleanValor = cleanValor.replace(',', '.');
+        }
+        
+        const valor = parseFloat(cleanValor);
         if (isNaN(valor)) continue;
+
+        const tipo = tipoRaw.trim().toLowerCase().includes('entrada') ? 'Entrada' : 'Saída';
 
         items.push({
           id: Math.random().toString(36).substr(2, 9),
           data_compra: formattedDate,
           data_pagamento: importSource === 'extrato' ? formattedDate : globalPaymentDate,
           descricao: descricao.trim(),
-          categoria: categoriaNome.trim(),
+          categoria: categoriaNome.trim() || 'Geral',
           valor,
-          tipo: tipo.trim().toLowerCase() === 'entrada' ? 'Entrada' : 'Saída',
-          destino: tipo.trim().toLowerCase() === 'entrada' ? importPessoaId : '' // Entradas are for the person, Saídas need review
+          tipo,
+          destino: tipo === 'Entrada' ? importPessoaId : '' 
         });
       }
       setReviewItems(items);
       setIsImportModalOpen(false);
       setIsReviewModalOpen(true);
-      // Reset input
       e.target.value = '';
     };
-    reader.readAsText(file);
+    reader.readAsArrayBuffer(file);
   };
 
   const handleConfirmImport = async () => {

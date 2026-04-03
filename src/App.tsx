@@ -1391,14 +1391,17 @@ CSV com colunas:
     setIsLoading(true);
     setLoadingMessage('Processando importação...');
     try {
+      // Local cache for categories to handle new ones in the same batch
+      const categoryCache = new Map<string, number>();
+      categorias.forEach(c => categoryCache.set(c.nome.toLowerCase(), c.id));
+
       // Process all items
       for (const item of reviewItems) {
-        // Handle Category creation if needed
         let categoriaId: number | null = null;
-        const existingCat = categorias.find(c => c.nome.toLowerCase() === item.categoria.toLowerCase());
+        const catNameLower = item.categoria.toLowerCase();
         
-        if (existingCat) {
-          categoriaId = existingCat.id;
+        if (categoryCache.has(catNameLower)) {
+          categoriaId = categoryCache.get(catNameLower)!;
         } else {
           const res = await fetch('/api/categorias', {
             method: 'POST',
@@ -1408,8 +1411,7 @@ CSV com colunas:
           const data = await res.json();
           if (data.id) {
             categoriaId = data.id;
-            // Update local state to avoid duplicate creation
-            setCategorias(prev => [...prev, { id: data.id, nome: item.categoria }]);
+            categoryCache.set(catNameLower, data.id);
           }
         }
 
@@ -1427,7 +1429,7 @@ CSV com colunas:
           if (!res.ok) {
             const data = await res.json();
             if (res.status === 400 && data.error?.includes('duplicado')) {
-              continue; // Skip duplicates during bulk import
+              continue; 
             }
             throw new Error(data.error || 'Erro ao salvar entrada');
           }
@@ -1443,14 +1445,12 @@ CSV com colunas:
                 descricao: item.descricao,
                 origem_id: parseInt(importPessoaId),
                 destino: item.destino,
-                categoria_id: categoriaId
+                categoria_id: categoriaId,
+                ignoreDuplicates: true // Allow identical transactions in the same import
               }),
             });
             if (!res.ok) {
               const data = await res.json();
-              if (res.status === 400 && data.error?.includes('duplicada')) {
-                continue; // Skip duplicates during bulk import
-              }
               throw new Error(data.error || 'Erro ao salvar despesa');
             }
           }
@@ -1463,6 +1463,7 @@ CSV com colunas:
       setTimeout(() => setToast(null), 3000);
       fetchData();
     } catch (err) {
+      console.error('Import error:', err);
       setError('Erro durante a importação. Algumas transações podem não ter sido salvas.');
     } finally {
       setIsLoading(false);

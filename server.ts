@@ -256,7 +256,12 @@ async function startServer() {
 
       res.json({ id: result.lastInsertRowid, nome });
     } catch (e) {
-      res.status(400).json({ error: "Categoria já existe" });
+      // If category exists, return the existing one instead of error
+      const existing = db.prepare("SELECT * FROM categorias WHERE nome = ?").get(nome) as any;
+      if (existing) {
+        return res.json(existing);
+      }
+      res.status(400).json({ error: "Erro ao criar categoria" });
     }
   });
 
@@ -310,7 +315,7 @@ async function startServer() {
   });
 
   apiRouter.post("/despesas", (req, res) => {
-    const { data_compra, data_pagamento, valor, descricao, origem_id, destino, categoria_id } = req.body;
+    const { data_compra, data_pagamento, valor, descricao, origem_id, destino, categoria_id, ignoreDuplicates } = req.body;
     
     if (!data_compra || !data_pagamento || isNaN(Number(valor)) || !origem_id || !categoria_id) {
       return res.status(400).json({ error: "Dados incompletos ou inválidos (valor, origem ou categoria)." });
@@ -318,13 +323,15 @@ async function startServer() {
 
     const roundedValor = Math.round(Number(valor) * 100) / 100;
     
-    const existing = db.prepare(`
-      SELECT id FROM despesas 
-      WHERE data_compra = ? AND data_pagamento = ? AND valor = ? AND descricao = ? AND origem_id = ? AND destino = ? AND categoria_id = ?
-    `).get(data_compra, data_pagamento, roundedValor, descricao || '', origem_id, destino, categoria_id);
+    if (!ignoreDuplicates) {
+      const existing = db.prepare(`
+        SELECT id FROM despesas 
+        WHERE data_compra = ? AND data_pagamento = ? AND valor = ? AND descricao = ? AND origem_id = ? AND destino = ? AND categoria_id = ?
+      `).get(data_compra, data_pagamento, roundedValor, descricao || '', origem_id, destino, categoria_id);
 
-    if (existing) {
-      return res.status(400).json({ error: "Esta despesa já foi lançada (duplicada)." });
+      if (existing) {
+        return res.status(400).json({ error: "Esta despesa já foi lançada (duplicada)." });
+      }
     }
 
     const result = db.prepare(

@@ -27,6 +27,7 @@ const DEFAULT_COLUMNS: ExportColumn[] = [
   { id: 'date_compra', label: 'Data Compra' },
   { id: 'description', label: 'Descrição' },
   { id: 'category', label: 'Categoria' },
+  { id: 'destino', label: 'Destino' },
   { id: 'value', label: 'Valor' },
   { id: 'type', label: 'Tipo' },
 ];

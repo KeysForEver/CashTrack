@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Filter, Users, DollarSign, CreditCard, Tag, TrendingUp, ChevronDown, ChevronUp, ClipboardCheck, Trash2, Download, Upload, RotateCcw, Layers, Loader2, PieChart as PieChartIcon, BarChart as BarChartIcon, Check, X, Search, Pencil, AlertTriangle, Cloud, Database } from 'lucide-react';
+import { Plus, Filter, Users, DollarSign, CreditCard, Tag, TrendingUp, ChevronDown, ChevronUp, ClipboardCheck, Trash2, Download, Upload, RotateCcw, Layers, Loader2, PieChart as PieChartIcon, BarChart as BarChartIcon, Check, X, Search, Pencil, AlertTriangle, Cloud, Database, ScrollText, ShieldCheck } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
@@ -41,6 +41,7 @@ import { ErrorModal } from './components/ErrorModal';
 import { ConfirmModal } from './components/ConfirmModal';
 import { ExportModal, ExportOptions } from './components/ExportModal';
 import { SearchHistoryFilter } from './components/SearchHistoryFilter';
+import { AuditLogsModal } from './components/AuditLogsModal';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -120,6 +121,7 @@ export default function App() {
   const [isDeleteCategoriaModalOpen, setIsDeleteCategoriaModalOpen] = useState(false);
   const [categoriaToDelete, setCategoriaToDelete] = useState<any>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isAuditLogsModalOpen, setIsAuditLogsModalOpen] = useState(false);
 
   const [activePieIndex, setActivePieIndex] = useState(0);
   const [activeChart, setActiveChart] = useState<'bar' | 'pie'>('bar');
@@ -1690,6 +1692,13 @@ CSV com colunas:
               color="text-blue-600"
               hoverBg="hover:bg-blue-100"
             />
+            <SidebarButton 
+              onClick={() => setIsAuditLogsModalOpen(true)} 
+              icon={<ScrollText size={20} />} 
+              label="Auditoria de Logs" 
+              color="text-indigo-600"
+              hoverBg="hover:bg-indigo-100"
+            />
             
             <div className="pt-6 pb-2">
               <p className="px-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">Prompts Itau</p>
@@ -1780,6 +1789,14 @@ CSV com colunas:
               </div>
 
               <div className="absolute right-0 flex items-center gap-2">
+                <button
+                  onClick={() => setIsAuditLogsModalOpen(true)}
+                  className="p-2 rounded-xl bg-white shadow-soft border-soft text-gray-600 hover:text-indigo-600 hover:bg-indigo-50 transition-all flex items-center gap-1.5 px-3"
+                  title="Auditoria de Logs & Rastreabilidade"
+                >
+                  <ScrollText size={18} />
+                  <span className="text-xs font-semibold hidden md:inline">Logs</span>
+                </button>
                 <button
                   onClick={() => setIsResetConfirmOpen(true)}
                   className="p-2 rounded-xl bg-white shadow-soft border-soft text-gray-400 hover:text-red-600 hover:bg-red-50 transition-all"
@@ -2936,6 +2953,15 @@ CSV com colunas:
         confirmLabel="Substituir Tudo"
         cancelLabel="Cancelar"
         type="warning"
+      />
+
+      <AuditLogsModal
+        isOpen={isAuditLogsModalOpen}
+        onClose={() => setIsAuditLogsModalOpen(false)}
+        auditLogs={auditLogs}
+        pessoas={pessoas}
+        categorias={categorias}
+        formatCurrency={formatCurrency}
       />
 
       <ErrorModal 

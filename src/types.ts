@@ -18,6 +18,7 @@ export interface Despesa {
   origem_id: number;
   destino: string; // "Dividir" ou string(pessoa.id)
   categoria_id: number;
+  observacao?: string;
   origem_nome?: string;
   categoria_nome?: string;
 }
@@ -28,6 +29,7 @@ export interface Salario {
   valor: number;
   descricao: string;
   recebedor_id: number;
+  observacao?: string;
   recebedor_nome?: string;
 }
 
@@ -38,6 +40,7 @@ export interface Movement {
   dateObj: Date;
   isValidDate: boolean;
   formattedDate: string;
+  formattedCompraDate?: string;
   month: number;
   monthName: string;
   monthNameShort: string;
@@ -48,6 +51,7 @@ export interface Movement {
   tipo: 'Entrada' | 'Saída';
   pessoa: string;
   destino: string;
+  observacao?: string;
   raw: any;
 }
 

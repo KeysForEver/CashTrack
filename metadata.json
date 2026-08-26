@@ -1,5 +1,6 @@
 {
   "name": "WithLove4Janis",
   "description": "Sistema de gestão de despesas e entradas entre múltiplas pessoas com cálculos de saldo e gráficos interativos.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

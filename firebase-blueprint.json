@@ -1,0 +1,95 @@
+{
+  "entities": {
+    "Pessoa": {
+      "title": "Pessoa",
+      "description": "Represents a person in the app",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Auto-generated document ID" },
+        "nome": { "type": "string", "description": "The name of the person" },
+        "cor": { "type": "string", "description": "The color associated with the person (hex code)" }
+      },
+      "required": ["nome", "cor"]
+    },
+    "Categoria": {
+      "title": "Categoria",
+      "description": "Represents an expense category",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Auto-generated document ID" },
+        "nome": { "type": "string", "description": "The name of the category" }
+      },
+      "required": ["nome"]
+    },
+    "Despesa": {
+      "title": "Despesa",
+      "description": "Represents an expense (Saída)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Auto-generated document ID" },
+        "data_compra": { "type": "string", "description": "Purchase date (YYYY-MM-DD)" },
+        "data_pagamento": { "type": "string", "description": "Payment date (YYYY-MM-DD)" },
+        "valor": { "type": "number", "description": "The monetary value of the expense" },
+        "descricao": { "type": "string", "description": "Optional description of the expense" },
+        "origem_id": { "type": "string", "description": "ID of the person who paid (origin)" },
+        "destino": { "type": "string", "description": "'Dividir' or ID of the destination person" },
+        "categoria_id": { "type": "string", "description": "ID of the category" }
+      },
+      "required": ["data_compra", "data_pagamento", "valor", "origem_id", "destino", "categoria_id"]
+    },
+    "Salario": {
+      "title": "Salario",
+      "description": "Represents an income (Entrada)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Auto-generated document ID" },
+        "data_pagamento": { "type": "string", "description": "Payment date (YYYY-MM-DD)" },
+        "valor": { "type": "number", "description": "The monetary value of the income" },
+        "descricao": { "type": "string", "description": "Optional description of the income" },
+        "recebedor_id": { "type": "string", "description": "ID of the person who received the income" }
+      },
+      "required": ["data_pagamento", "valor", "recebedor_id"]
+    },
+    "Log": {
+      "title": "Log",
+      "description": "Audit log for transaction changes",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Auto-generated document ID" },
+        "timestamp": { "type": "string", "description": "Timestamp of the log entry (ISO 8601)" },
+        "descricao": { "type": "string", "description": "Description of the action" },
+        "valor_antigo": { "type": "number", "description": "Previous value (if applicable)" },
+        "valor_novo": { "type": "number", "description": "New value (if applicable)" },
+        "tipo": { "type": "string", "description": "Type of the entity ('Pessoa', 'Categoria', 'Despesa', 'Entrada')" },
+        "registro_id": { "type": "string", "description": "ID of the modified record" },
+        "pessoa_id": { "type": "string", "description": "ID of the person associated (optional)" },
+        "data_registro": { "type": "string", "description": "Date associated with the log record (optional)" },
+        "destino": { "type": "string", "description": "Destination associated with the log record (optional)" },
+        "categoria_id": { "type": "string", "description": "Category ID associated (optional)" }
+      },
+      "required": ["timestamp", "descricao", "tipo", "registro_id"]
+    }
+  },
+  "firestore": {
+    "pessoas": {
+      "schema": "Pessoa",
+      "description": "Collection of people"
+    },
+    "categorias": {
+      "schema": "Categoria",
+      "description": "Collection of categories"
+    },
+    "despesas": {
+      "schema": "Despesa",
+      "description": "Collection of expenses"
+    },
+    "salarios": {
+      "schema": "Salario",
+      "description": "Collection of incomes"
+    },
+    "logs": {
+      "schema": "Log",
+      "description": "Collection of system audit logs"
+    }
+  }
+}

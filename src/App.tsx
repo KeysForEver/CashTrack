@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Filter, Users, DollarSign, CreditCard, Tag, TrendingUp, ChevronDown, ChevronUp, ClipboardCheck, Trash2, Download, Upload, RotateCcw, Layers, Loader2, PieChart as PieChartIcon, BarChart as BarChartIcon, Check, X, Search, Pencil, AlertTriangle } from 'lucide-react';
+import { Plus, Filter, Users, DollarSign, CreditCard, Tag, TrendingUp, ChevronDown, ChevronUp, ClipboardCheck, Trash2, Download, Upload, RotateCcw, Layers, Loader2, PieChart as PieChartIcon, BarChart as BarChartIcon, Check, X, Search, Pencil, AlertTriangle, Cloud, Database } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
@@ -8,17 +8,39 @@ import {
 import { 
   format, parseISO, getMonth, getYear, startOfMonth, endOfMonth, eachDayOfInterval,
   differenceInDays, eachMonthOfInterval, eachYearOfInterval, isSameMonth, isSameYear,
-  startOfDay, endOfDay, isWithinInterval
+  startOfDay, endOfDay, isWithinInterval, subDays, subMonths, subYears, startOfYear, endOfYear
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 import { Pessoa, Categoria, Despesa, Salario, PALETTES } from './types';
+import {
+  getPessoas,
+  addPessoa,
+  deletePessoa,
+  getCategorias,
+  addCategoria,
+  updateCategoria,
+  deleteCategoria,
+  getDespesas,
+  addDespesa,
+  updateDespesa,
+  deleteDespesa,
+  getSalarios,
+  addSalario,
+  updateSalario,
+  deleteSalario,
+  getLogs,
+  resetAllData,
+  getBackupData,
+  restoreBackupData
+} from './services/firestoreService';
 import { copyToClipboard as copyToClipboardUtil } from './utils/clipboard';
 import { Modal } from './components/Modal';
 import { ErrorModal } from './components/ErrorModal';
 import { ConfirmModal } from './components/ConfirmModal';
 import { ExportModal, ExportOptions } from './components/ExportModal';
+import { SearchHistoryFilter } from './components/SearchHistoryFilter';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -122,6 +144,7 @@ export default function App() {
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [editingRecord, setEditingRecord] = useState<{ id: string; type: 'Entrada' | 'Saída'; value: string } | null>(null);
   const [editingRecordCategory, setEditingRecordCategory] = useState<{ id: string; categoryId: number } | null>(null);
+  const [editingRecordNote, setEditingRecordNote] = useState<{ id: string; note: string } | null>(null);
   const [personSearchTerm, setPersonSearchTerm] = useState('');
 
   useEffect(() => {
@@ -265,7 +288,8 @@ CSV com colunas:
     descricao: '', 
     origem_id: '', 
     destino: 'Dividir', 
-    categoria_id: '' 
+    categoria_id: '',
+    observacao: ''
   });
   const [newSalario, setNewSalario] = useState({ 
     data_pagamento: format(new Date(), 'yyyy-MM-dd'), 
@@ -283,22 +307,22 @@ CSV com colunas:
     setIsLoading(true);
     setLoadingMessage('Carregando dados...');
     try {
-      const t = Date.now();
-      const [p, c, d, s] = await Promise.all([
-        fetch(`/api/pessoas?t=${t}`).then(res => res.json()),
-        fetch(`/api/categorias?t=${t}`).then(res => res.json()),
-        fetch(`/api/despesas?t=${t}`).then(res => res.json()),
-        fetch(`/api/salarios?t=${t}`).then(res => res.json()),
+      const [p, c, d, s, logs] = await Promise.all([
+        getPessoas(),
+        getCategorias(),
+        getDespesas(),
+        getSalarios(),
+        getLogs()
       ]);
+
       setPessoas(p);
       setCategorias(c);
       setDespesas(d);
       setSalarios(s);
-      const logs = await fetch(`/api/logs?t=${t}`).then(res => res.json());
       setAuditLogs(logs);
     } catch (err) {
       console.error('Erro no fetchData:', err);
-      setError('Erro ao carregar dados do servidor. Por favor, tente novamente.');
+      setError(err instanceof Error ? err.message : 'Erro ao carregar dados do Firebase Firestore. Por favor, tente novamente.');
     } finally {
       setIsLoading(false);
     }
@@ -306,9 +330,23 @@ CSV com colunas:
 
   useEffect(() => {
     const handleGlobalError = (event: ErrorEvent) => {
+      const msg = String(event.message || "");
+      if (msg.includes("WebSocket") || msg.includes("vite") || msg.includes("HMR")) {
+        return;
+      }
       setError(`Erro inesperado: ${event.message}`);
     };
     const handleRejection = (event: PromiseRejectionEvent) => {
+      const reasonStr = String(event.reason || "");
+      if (
+        reasonStr.includes("WebSocket") ||
+        reasonStr.includes("vite") ||
+        reasonStr.includes("HMR") ||
+        reasonStr.includes("ws://") ||
+        reasonStr.includes("wss://")
+      ) {
+        return;
+      }
       setError(`Erro de rede ou servidor: ${event.reason}`);
     };
 
@@ -323,26 +361,33 @@ CSV com colunas:
     };
   }, []);
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
   const handleUpdateCategory = async (id: string, newCategoryId: number) => {
     setIsLoading(true);
     try {
-      const despesaId = id.split('-')[1];
-      const res = await fetch(`/api/despesas/${despesaId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ categoria_id: newCategoryId })
-      });
-      if (!res.ok) throw new Error('Erro ao atualizar categoria');
+      const despesaId = parseInt(id.split('-')[1]);
+      await updateDespesa(despesaId, { categoria_id: newCategoryId });
       
       setToast('Categoria atualizada com sucesso!');
       setEditingRecordCategory(null);
       await fetchData();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao atualizar categoria');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleUpdateNote = async (id: string, noteText: string) => {
+    setIsLoading(true);
+    try {
+      const despesaId = parseInt(id.split('-')[1]);
+      await updateDespesa(despesaId, { observacao: noteText.trim() });
+      
+      setToast('Observação atualizada com sucesso!');
+      setEditingRecordNote(null);
+      await fetchData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao atualizar observação');
     } finally {
       setIsLoading(false);
     }
@@ -359,14 +404,12 @@ CSV com colunas:
 
     setIsLoading(true);
     try {
-      const id = editingRecord.id.split('-')[1];
-      const endpoint = editingRecord.type === 'Saída' ? `/api/despesas/${id}` : `/api/salarios/${id}`;
-      const res = await fetch(endpoint, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ valor: valorNum })
-      });
-      if (!res.ok) throw new Error('Erro ao atualizar valor');
+      const id = parseInt(editingRecord.id.split('-')[1]);
+      if (editingRecord.type === 'Saída') {
+        await updateDespesa(id, { valor: valorNum });
+      } else {
+        await updateSalario(id, { valor: valorNum });
+      }
       
       setToast('Valor atualizado com sucesso!');
       setEditingRecord(null);
@@ -383,12 +426,12 @@ CSV com colunas:
     
     setIsLoading(true);
     try {
-      const recordId = id.split('-')[1];
-      const endpoint = type === 'Saída' ? `/api/despesas/${recordId}` : `/api/salarios/${recordId}`;
-      const res = await fetch(endpoint, {
-        method: 'DELETE'
-      });
-      if (!res.ok) throw new Error('Erro ao excluir registro');
+      const recordId = parseInt(id.split('-')[1]);
+      if (type === 'Saída') {
+        await deleteDespesa(recordId);
+      } else {
+        await deleteSalario(recordId);
+      }
       
       setToast('Registro excluído com sucesso!');
       await fetchData();
@@ -462,6 +505,94 @@ CSV com colunas:
       return matchStart && matchEnd && matchMonth && matchYear;
     });
   }, [salarios, startDate, endDate, filterMonth, filterYear]);
+
+  const handleQuickFilterAll = () => {
+    setStartDate('');
+    setEndDate('');
+    setFilterMonth(-1);
+    setFilterYear(-1);
+  };
+
+  const handleQuickFilterLast7 = () => {
+    const today = new Date();
+    setStartDate(format(subDays(today, 7), 'yyyy-MM-dd'));
+    setEndDate(format(today, 'yyyy-MM-dd'));
+    setFilterMonth(-1);
+    setFilterYear(-1);
+  };
+
+  const handleQuickFilterLast30 = () => {
+    const today = new Date();
+    setStartDate(format(subDays(today, 30), 'yyyy-MM-dd'));
+    setEndDate(format(today, 'yyyy-MM-dd'));
+    setFilterMonth(-1);
+    setFilterYear(-1);
+  };
+
+  const handleQuickFilterThisMonth = () => {
+    const today = new Date();
+    setFilterMonth(getMonth(today));
+    setFilterYear(getYear(today));
+    setStartDate('');
+    setEndDate('');
+  };
+
+  const handleQuickFilterLastMonth = () => {
+    const lastMonthDate = subMonths(new Date(), 1);
+    setFilterMonth(getMonth(lastMonthDate));
+    setFilterYear(getYear(lastMonthDate));
+    setStartDate('');
+    setEndDate('');
+  };
+
+  const handleQuickFilterThisYear = () => {
+    const today = new Date();
+    setFilterYear(getYear(today));
+    setFilterMonth(-1);
+    setStartDate('');
+    setEndDate('');
+  };
+
+  const handleQuickFilterLastYear = () => {
+    const lastYearDate = subYears(new Date(), 1);
+    setFilterYear(getYear(lastYearDate));
+    setFilterMonth(-1);
+    setStartDate('');
+    setEndDate('');
+  };
+
+  const activeQuickFilter = useMemo(() => {
+    const today = new Date();
+    const todayStr = format(today, 'yyyy-MM-dd');
+    const last7Str = format(subDays(today, 7), 'yyyy-MM-dd');
+    const last30Str = format(subDays(today, 30), 'yyyy-MM-dd');
+
+    const curMonth = getMonth(today);
+    const curYear = getYear(today);
+    const prevMonthDate = subMonths(today, 1);
+    const prevMonth = getMonth(prevMonthDate);
+    const prevMonthYear = getYear(prevMonthDate);
+    const prevYear = getYear(subYears(today, 1));
+
+    if (!startDate && !endDate && filterMonth === -1 && filterYear === -1) return 'all';
+    if (startDate === last7Str && endDate === todayStr && filterMonth === -1 && filterYear === -1) return 'last7';
+    if (startDate === last30Str && endDate === todayStr && filterMonth === -1 && filterYear === -1) return 'last30';
+    if (filterMonth === curMonth && filterYear === curYear && !startDate && !endDate) return 'thisMonth';
+    if (filterMonth === prevMonth && filterYear === prevMonthYear && !startDate && !endDate) return 'lastMonth';
+    if (filterYear === curYear && filterMonth === -1 && !startDate && !endDate) return 'thisYear';
+    if (filterYear === prevYear && filterMonth === -1 && !startDate && !endDate) return 'lastYear';
+    return null;
+  }, [startDate, endDate, filterMonth, filterYear]);
+
+  const quickFilterButtons = [
+    { id: 'all', label: 'Tudo', action: handleQuickFilterAll },
+    { id: 'last7', label: 'Últimos 7 Dias', action: handleQuickFilterLast7 },
+    { id: 'last30', label: 'Últimos 30 Dias', action: handleQuickFilterLast30 },
+    { id: 'thisMonth', label: 'Este Mês', action: handleQuickFilterThisMonth },
+    { id: 'lastMonth', label: 'Mês Passado', action: handleQuickFilterLastMonth },
+    { id: 'thisYear', label: 'Este Ano', action: handleQuickFilterThisYear },
+    { id: 'lastYear', label: 'Ano Passado', action: handleQuickFilterLastYear },
+  ];
 
   const hasRecords = filteredDespesas.length > 0 || filteredSalarios.length > 0;
 
@@ -567,6 +698,7 @@ CSV com colunas:
           tipo: 'Saída', 
           displayData: d.data_pagamento,
           data_compra: d.data_compra || d.data_pagamento,
+          observacao: d.observacao || '',
           formattedDate: isValidDate ? format(dateObj, 'dd/MM/yyyy') : d.data_pagamento,
           formattedCompraDate: d.data_compra ? format(parseISO(d.data_compra), 'dd/MM/yyyy') : (isValidDate ? format(dateObj, 'dd/MM/yyyy') : d.data_pagamento),
           monthName: isValidDate ? format(dateObj, 'MMMM', { locale: ptBR }) : '',
@@ -582,6 +714,7 @@ CSV com colunas:
           tipo: 'Entrada', 
           displayData: s.data_pagamento,
           data_compra: s.data_pagamento,
+          observacao: s.observacao || '',
           formattedDate: isValidDate ? format(dateObj, 'dd/MM/yyyy') : s.data_pagamento,
           formattedCompraDate: isValidDate ? format(dateObj, 'dd/MM/yyyy') : s.data_pagamento,
           monthName: isValidDate ? format(dateObj, 'MMMM', { locale: ptBR }) : '',
@@ -612,6 +745,7 @@ CSV com colunas:
         }
 
         return normalize(m.descricao).includes(term) ||
+          (m.observacao && normalize(m.observacao).includes(term)) ||
           (m.categoria_nome && normalize(m.categoria_nome).includes(term)) ||
           normalize(destinoName).includes(term) ||
           valorStr.includes(term) ||
@@ -641,7 +775,9 @@ CSV com colunas:
       exclusiveSpent,
       sharedSpent,
       totalSalary,
-      net: totalSalary - totalSpent
+      net: totalSalary - totalSpent,
+      totalCount: pDespesas.length + pSalarios.length,
+      categories: Array.from(new Set(pDespesas.map(d => d.categoria_nome).filter(Boolean))) as string[]
     };
   }, [selectedPersonId, pessoas, filteredDespesas, filteredSalarios, personSearchTerm]);
 
@@ -811,6 +947,7 @@ CSV com colunas:
         year: isValidDate ? getYear(dateObj).toString() : '',
         descricao: d.descricao || 'Despesa',
         categoria: d.categoria_nome || '-',
+        observacao: d.observacao || '',
         valor: d.valor, 
         originalValor: initialValor,
         tipo: 'Saída',
@@ -844,6 +981,7 @@ CSV com colunas:
         year: isValidDate ? getYear(dateObj).toString() : '',
         descricao: s.descricao || 'Entrada',
         categoria: 'Entrada',
+        observacao: s.observacao || '',
         valor: s.valor, 
         originalValor: initialValor,
         tipo: 'Entrada',
@@ -991,6 +1129,7 @@ CSV com colunas:
           normalize(m.monthName).includes(term) ||
           normalize(m.monthNameShort).includes(term) ||
           normalize(m.descricao).includes(term) ||
+          (m.observacao && normalize(m.observacao).includes(term)) ||
           normalize(m.categoria).includes(term) ||
           valorStr.includes(term) ||
           valorStr.includes(numericTerm) ||
@@ -1046,57 +1185,21 @@ CSV com colunas:
     return result.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   }, [auditLogs, logSearchTerm]);
 
-  const LogTableHeader = ({ label, columnKey }: { label: string, columnKey: string }) => {
-    const isSorted = logSort?.key === columnKey;
-    
-    const handleSort = () => {
-      setLogSort(prev => {
-        if (prev?.key === columnKey) {
-          return { key: columnKey, direction: prev.direction === 'asc' ? 'desc' : 'asc' };
-        }
-        return { key: columnKey, direction: 'asc' };
-      });
-    };
-
-    return (
-      <th 
-        className="px-4 py-3 font-semibold cursor-pointer hover:bg-gray-200 transition-colors select-none group"
-        onClick={handleSort}
-      >
-        <div className="flex items-center gap-2">
-          <span className="truncate">{label}</span>
-          <div className="flex flex-col shrink-0">
-            {isSorted ? (
-              logSort.direction === 'asc' ? (
-                <ChevronUp size={14} className="text-indigo-600" />
-              ) : (
-                <ChevronDown size={14} className="text-indigo-600" />
-              )
-            ) : (
-              <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                <ChevronUp size={14} className="text-gray-400" />
-              </div>
-            )}
-          </div>
-        </div>
-      </th>
-    );
-  };
 
   const handleAddPessoa = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!newPessoa.nome || !newPessoa.cor) {
+      setError('Por favor, preencha o nome e selecione uma cor.');
+      return;
+    }
     try {
-      const res = await fetch('/api/pessoas', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newPessoa),
-      });
-      if (!res.ok) throw new Error('Falha ao salvar pessoa');
+      await addPessoa({ nome: newPessoa.nome, cor: newPessoa.cor });
       setNewPessoa({ nome: '', cor: '' });
       setIsPessoaModalOpen(false);
-      fetchData();
+      await fetchData();
+      setToast('Pessoa adicionada com sucesso!');
     } catch (err) {
-      setError('Erro ao adicionar pessoa. Verifique os dados e tente novamente.');
+      setError(err instanceof Error ? err.message : 'Erro ao adicionar pessoa. Verifique os dados e tente novamente.');
     }
   };
 
@@ -1113,20 +1216,16 @@ CSV com colunas:
     }
 
     try {
-      const res = await fetch('/api/despesas', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          ...newDespesa, 
-          valor: valorNum, 
-          origem_id: origemIdNum, 
-          categoria_id: categoriaIdNum 
-        }),
+      await addDespesa({
+        data_compra: newDespesa.data_compra,
+        data_pagamento: newDespesa.data_pagamento,
+        valor: valorNum,
+        descricao: newDespesa.descricao,
+        origem_id: origemIdNum,
+        destino: newDespesa.destino || 'Dividir',
+        categoria_id: categoriaIdNum,
+        observacao: newDespesa.observacao
       });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Falha ao salvar despesa');
-      }
       // Reset all fields
       setNewDespesa({ 
         data_compra: format(new Date(), 'yyyy-MM-dd'), 
@@ -1135,10 +1234,11 @@ CSV com colunas:
         descricao: '', 
         origem_id: '', 
         destino: 'Dividir', 
-        categoria_id: '' 
+        categoria_id: '',
+        observacao: ''
       });
       setIsDespesaModalOpen(false);
-      fetchData();
+      await fetchData();
       setToast('Despesa adicionada com sucesso!');
     } catch (err: any) {
       setError(err.message || 'Erro ao adicionar despesa. Verifique os campos obrigatórios.');
@@ -1157,19 +1257,12 @@ CSV com colunas:
     }
 
     try {
-      const res = await fetch('/api/salarios', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          ...newSalario, 
-          valor: valorNum, 
-          recebedor_id: recebedorIdNum 
-        }),
+      await addSalario({
+        data_pagamento: newSalario.data_pagamento,
+        valor: valorNum,
+        descricao: newSalario.descricao,
+        recebedor_id: recebedorIdNum
       });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Falha ao salvar entrada');
-      }
       // Reset all fields
       setNewSalario({ 
         data_pagamento: format(new Date(), 'yyyy-MM-dd'), 
@@ -1178,7 +1271,7 @@ CSV com colunas:
         recebedor_id: '' 
       });
       setIsSalarioModalOpen(false);
-      fetchData();
+      await fetchData();
       setToast('Entrada adicionada com sucesso!');
     } catch (err: any) {
       setError(err.message || 'Erro ao adicionar entrada. Verifique os campos.');
@@ -1187,18 +1280,11 @@ CSV com colunas:
 
   const handleAddCategoria = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!newCategoria.nome.trim()) return;
     try {
-      const res = await fetch('/api/categorias', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newCategoria),
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Falha ao salvar categoria');
-      }
+      await addCategoria({ nome: newCategoria.nome });
       setNewCategoria({ nome: '' });
-      fetchData();
+      await fetchData();
       setToast('Categoria adicionada com sucesso!');
     } catch (err: any) {
       setError(err.message || 'Erro ao adicionar categoria.');
@@ -1209,17 +1295,9 @@ CSV com colunas:
     e.preventDefault();
     if (!editingCategoria) return;
     try {
-      const res = await fetch(`/api/categorias/${editingCategoria.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nome: editingCategoria.nome }),
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Falha ao atualizar categoria');
-      }
+      await updateCategoria(editingCategoria.id, editingCategoria.nome);
       setEditingCategoria(null);
-      fetchData();
+      await fetchData();
       setToast('Categoria atualizada com sucesso!');
     } catch (err: any) {
       setError(err.message || 'Erro ao atualizar categoria.');
@@ -1229,16 +1307,10 @@ CSV com colunas:
   const handleDeleteCategoria = async () => {
     if (!categoriaToDelete) return;
     try {
-      const res = await fetch(`/api/categorias/${categoriaToDelete.id}`, {
-        method: 'DELETE',
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Falha ao excluir categoria');
-      }
+      await deleteCategoria(categoriaToDelete.id);
       setIsDeleteCategoriaModalOpen(false);
       setCategoriaToDelete(null);
-      fetchData();
+      await fetchData();
       setToast('Categoria excluída com sucesso!');
     } catch (err: any) {
       setError(err.message || 'Erro ao excluir categoria.');
@@ -1248,17 +1320,14 @@ CSV com colunas:
   const handleDeletePessoa = async () => {
     if (!personToDelete) return;
     try {
-      const res = await fetch(`/api/pessoas/${personToDelete.id}`, {
-        method: 'DELETE',
-      });
-      if (!res.ok) throw new Error('Falha ao excluir pessoa');
+      await deletePessoa(personToDelete.id);
       setIsDeletePessoaModalOpen(false);
       setIsPersonDetailModalOpen(false);
       setPersonToDelete(null);
       setSelectedPersonId(null);
       setToast('Pessoa e todos os seus registros foram excluídos permanentemente!');
       setTimeout(() => setToast(null), 3000);
-      fetchData();
+      await fetchData();
     } catch (err) {
       setError('Erro ao excluir pessoa. Tente novamente.');
     }
@@ -1268,9 +1337,7 @@ CSV com colunas:
     setIsLoading(true);
     setLoadingMessage('Limpando todos os dados...');
     try {
-      const response = await fetch('/api/reset', { method: 'POST' });
-      if (!response.ok) throw new Error('Erro ao resetar dados');
-      
+      await resetAllData();
       setToast('Dados limpos com sucesso!');
       await fetchData();
     } catch (err) {
@@ -1281,8 +1348,19 @@ CSV com colunas:
     }
   };
 
-  const handleDownloadBackup = () => {
-    window.location.href = '/api/backup';
+  const handleDownloadBackup = async () => {
+    try {
+      setIsLoading(true);
+      setLoadingMessage('Gerando backup...');
+      const data = await getBackupData();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      saveAs(blob, `cashtrack_backup_${new Date().toISOString().split('T')[0]}.json`);
+      setToast('Backup exportado com sucesso!');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao gerar backup');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleRestoreBackup = async () => {
@@ -1290,26 +1368,18 @@ CSV com colunas:
     
     setIsLoading(true);
     setLoadingMessage('Restaurando backup...');
-    const formData = new FormData();
-    formData.append('backup', pendingRestoreFile);
 
     try {
-      const res = await fetch('/api/restore', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Erro ao restaurar backup');
-      }
+      const text = await pendingRestoreFile.text();
+      const backupData = JSON.parse(text);
+      await restoreBackupData(backupData);
 
       setIsRestoreConfirmOpen(false);
       setPendingRestoreFile(null);
-      setToast('Backup restaurado com sucesso! Recarregando...');
-      setTimeout(() => window.location.reload(), 2000);
+      setToast('Backup restaurado com sucesso!');
+      await fetchData();
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message || 'Erro ao restaurar backup. Verifique se o arquivo JSON é válido.');
       setIsRestoreConfirmOpen(false);
       setPendingRestoreFile(null);
     } finally {
@@ -1425,56 +1495,30 @@ CSV com colunas:
         if (categoryCache.has(catNameLower)) {
           categoriaId = categoryCache.get(catNameLower)!;
         } else {
-          const res = await fetch('/api/categorias', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ nome: item.categoria }),
-          });
-          const data = await res.json();
-          if (data.id) {
-            categoriaId = data.id;
-            categoryCache.set(catNameLower, data.id);
-          }
+          const newCat = await addCategoria({ nome: item.categoria });
+          categoriaId = newCat.id;
+          categoryCache.set(catNameLower, newCat.id);
         }
 
         if (item.tipo === 'Entrada') {
-          const res = await fetch('/api/salarios', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
+          await addSalario({
+            data_pagamento: item.data_pagamento,
+            valor: item.valor,
+            descricao: item.descricao,
+            recebedor_id: parseInt(importPessoaId)
+          });
+        } else {
+          if (categoriaId) {
+            await addDespesa({
+              data_compra: item.data_compra,
               data_pagamento: item.data_pagamento,
               valor: item.valor,
               descricao: item.descricao,
-              recebedor_id: parseInt(importPessoaId)
-            }),
-          });
-          if (!res.ok) {
-            const data = await res.json();
-            if (res.status === 400 && data.error?.includes('duplicado')) {
-              continue; 
-            }
-            throw new Error(data.error || 'Erro ao salvar entrada');
-          }
-        } else {
-          if (categoriaId) {
-            const res = await fetch('/api/despesas', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                data_compra: item.data_compra,
-                data_pagamento: item.data_pagamento,
-                valor: item.valor,
-                descricao: item.descricao,
-                origem_id: parseInt(importPessoaId),
-                destino: item.destino,
-                categoria_id: categoriaId,
-                ignoreDuplicates: true // Allow identical transactions in the same import
-              }),
+              origem_id: parseInt(importPessoaId),
+              destino: item.destino,
+              categoria_id: categoriaId,
+              ignoreDuplicates: true
             });
-            if (!res.ok) {
-              const data = await res.json();
-              throw new Error(data.error || 'Erro ao salvar despesa');
-            }
           }
         }
       }
@@ -1483,7 +1527,7 @@ CSV com colunas:
       setImportPessoaId('');
       setToast('Importação concluída com sucesso!');
       setTimeout(() => setToast(null), 3000);
-      fetchData();
+      await fetchData();
     } catch (err) {
       console.error('Import error:', err);
       setError('Erro durante a importação. Algumas transações podem não ter sido salvas.');
@@ -1504,6 +1548,7 @@ CSV com colunas:
     if (options.columns.includes('description')) columns.push({ header: 'Descrição', key: 'description', width: 35 });
     if (options.columns.includes('category')) columns.push({ header: 'Categoria', key: 'category', width: 20 });
     if (options.columns.includes('destino')) columns.push({ header: 'Destino', key: 'destino', width: 20 });
+    if (options.columns.includes('observacao')) columns.push({ header: 'Observação', key: 'observacao', width: 30 });
     if (options.columns.includes('value')) columns.push({ header: 'Valor', key: 'value', width: 15 });
     if (options.columns.includes('type')) columns.push({ header: 'Tipo', key: 'type', width: 15 });
     worksheet.columns = columns;
@@ -1520,6 +1565,7 @@ CSV com colunas:
           (pessoas.find(p => p.id === Number(m.destino))?.nome || m.destino || '-')
         ) : '-';
       }
+      if (options.columns.includes('observacao')) row['observacao'] = m.observacao || '';
       if (options.columns.includes('value')) row['value'] = m.valor;
       if (options.columns.includes('type')) row['type'] = m.tipo;
       worksheet.addRow(row);
@@ -1543,6 +1589,7 @@ CSV com colunas:
     if (options.columns.includes('date_compra')) columns.push({ header: 'Data Compra', key: 'date_compra', width: 15 });
     if (options.columns.includes('description')) columns.push({ header: 'Descrição', key: 'description', width: 35 });
     if (options.columns.includes('category')) columns.push({ header: 'Categoria', key: 'category', width: 20 });
+    if (options.columns.includes('observacao')) columns.push({ header: 'Observação', key: 'observacao', width: 30 });
     if (options.columns.includes('value')) columns.push({ header: 'Valor', key: 'value', width: 15 });
     if (options.columns.includes('type')) columns.push({ header: 'Tipo', key: 'type', width: 15 });
     if (options.columns.includes('person')) columns.push({ header: 'Pessoa', key: 'person', width: 20 });
@@ -1555,6 +1602,7 @@ CSV com colunas:
       if (options.columns.includes('date_compra')) row['date_compra'] = m.formattedCompraDate;
       if (options.columns.includes('description')) row['description'] = m.descricao;
       if (options.columns.includes('category')) row['category'] = m.categoria || '-';
+      if (options.columns.includes('observacao')) row['observacao'] = m.observacao || '';
       if (options.columns.includes('value')) row['value'] = m.valor;
       if (options.columns.includes('type')) row['type'] = m.tipo;
       if (options.columns.includes('person')) row['person'] = m.pessoa;
@@ -1668,99 +1716,123 @@ CSV com colunas:
       {/* Main Content */}
       <main className="flex-1 ml-72 p-6 flex flex-col overflow-hidden">
         <div className="w-[95%] mx-auto flex flex-col h-full">
-          <header className="mb-6 relative flex items-center justify-center min-h-[48px] shrink-0">
-            <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-white p-2 px-4 shadow-soft border-soft">
-              <div className="flex items-center gap-2">
-                <Filter className="text-gray-400" size={18} />
-                <select 
-                  value={filterMonth} 
-                  onChange={(e) => setFilterMonth(parseInt(e.target.value))}
-                  className="rounded-lg border-none bg-transparent px-2 py-1 outline-none text-sm font-medium text-gray-700 focus:ring-0"
-                >
-                  <option value={-1}>Todos os Meses</option>
-                  {availableMonths.map((m) => (
-                    <option key={m} value={m}>
-                      {format(new Date(2024, m), 'MMMM', { locale: ptBR })}
-                    </option>
-                  ))}
-                </select>
-                <div className="w-px h-4 bg-gray-200"></div>
-                <select 
-                  value={filterYear} 
-                  onChange={(e) => setFilterYear(parseInt(e.target.value))}
-                  className="rounded-lg border-none bg-transparent px-2 py-1 outline-none text-sm font-medium text-gray-700 focus:ring-0"
-                >
-                  <option value={-1}>Todos os Anos</option>
-                  {availableYears.map(y => (
-                    <option key={y} value={y}>{y}</option>
-                  ))}
-                </select>
+          <header className="mb-6 flex flex-col items-center gap-3 shrink-0">
+            <div className="relative w-full flex items-center justify-center min-h-[48px]">
+              <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-white p-2 px-4 shadow-soft border-soft">
+                <div className="flex items-center gap-2">
+                  <Filter className="text-gray-400" size={18} />
+                  <select 
+                    value={filterMonth} 
+                    onChange={(e) => setFilterMonth(parseInt(e.target.value))}
+                    className="rounded-lg border-none bg-transparent px-2 py-1 outline-none text-sm font-medium text-gray-700 focus:ring-0"
+                  >
+                    <option value={-1}>Todos os Meses</option>
+                    {availableMonths.map((m) => (
+                      <option key={m} value={m}>
+                        {format(new Date(2024, m), 'MMMM', { locale: ptBR })}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="w-px h-4 bg-gray-200"></div>
+                  <select 
+                    value={filterYear} 
+                    onChange={(e) => setFilterYear(parseInt(e.target.value))}
+                    className="rounded-lg border-none bg-transparent px-2 py-1 outline-none text-sm font-medium text-gray-700 focus:ring-0"
+                  >
+                    <option value={-1}>Todos os Anos</option>
+                    {availableYears.map(y => (
+                      <option key={y} value={y}>{y}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="w-px h-6 bg-gray-200 hidden md:block"></div>
+
+                <div className="flex items-center gap-2">
+                  <input 
+                    type="date" 
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="rounded-lg border-none bg-gray-50 px-2 py-1 outline-none text-xs font-medium text-gray-700 focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <span className="text-gray-400 text-xs">até</span>
+                  <input 
+                    type="date" 
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="rounded-lg border-none bg-gray-50 px-2 py-1 outline-none text-xs font-medium text-gray-700 focus:ring-2 focus:ring-indigo-500"
+                  />
+                  {(startDate || endDate || filterMonth !== -1 || filterYear !== -1) && (
+                    <button 
+                      onClick={() => { 
+                        setStartDate(''); 
+                        setEndDate(''); 
+                        setFilterMonth(-1);
+                        setFilterYear(-1);
+                      }}
+                      className="p-1 hover:bg-gray-100 rounded-full text-gray-400 hover:text-red-500 transition-colors"
+                      title="Limpar Filtros"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
               </div>
 
-              <div className="w-px h-6 bg-gray-200 hidden md:block"></div>
-
-              <div className="flex items-center gap-2">
-                <input 
-                  type="date" 
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="rounded-lg border-none bg-gray-50 px-2 py-1 outline-none text-xs font-medium text-gray-700 focus:ring-2 focus:ring-indigo-500"
-                />
-                <span className="text-gray-400 text-xs">até</span>
-                <input 
-                  type="date" 
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="rounded-lg border-none bg-gray-50 px-2 py-1 outline-none text-xs font-medium text-gray-700 focus:ring-2 focus:ring-indigo-500"
-                />
-                {(startDate || endDate || filterMonth !== -1 || filterYear !== -1) && (
-                  <button 
-                    onClick={() => { 
-                      setStartDate(''); 
-                      setEndDate(''); 
-                      setFilterMonth(-1);
-                      setFilterYear(-1);
+              <div className="absolute right-0 flex items-center gap-2">
+                <button
+                  onClick={() => setIsResetConfirmOpen(true)}
+                  className="p-2 rounded-xl bg-white shadow-soft border-soft text-gray-400 hover:text-red-600 hover:bg-red-50 transition-all"
+                  title="Limpar Todos os Dados"
+                >
+                  <Trash2 size={20} />
+                </button>
+                <button
+                  onClick={handleDownloadBackup}
+                  className="p-2 rounded-xl bg-white shadow-soft border-soft text-gray-600 hover:text-indigo-600 hover:bg-indigo-50 transition-all"
+                  title="Baixar Backup (.zip)"
+                >
+                  <Download size={20} />
+                </button>
+                <label className="cursor-pointer p-2 rounded-xl bg-white shadow-soft border-soft text-gray-600 hover:text-emerald-600 hover:bg-emerald-50 transition-all" title="Restaurar Backup (.zip)">
+                  <Upload size={20} />
+                  <input
+                    type="file"
+                    accept=".zip"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        setPendingRestoreFile(file);
+                        setIsRestoreConfirmOpen(true);
+                      }
+                      e.target.value = '';
                     }}
-                    className="p-1 hover:bg-gray-100 rounded-full text-gray-400 hover:text-red-500 transition-colors"
-                    title="Limpar Filtros"
-                  >
-                    <X size={14} />
-                  </button>
-                )}
+                  />
+                </label>
               </div>
             </div>
 
-            <div className="absolute right-0 flex items-center gap-2">
-              <button
-                onClick={() => setIsResetConfirmOpen(true)}
-                className="p-2 rounded-xl bg-white shadow-soft border-soft text-gray-400 hover:text-red-600 hover:bg-red-50 transition-all"
-                title="Limpar Todos os Dados"
-              >
-                <Trash2 size={20} />
-              </button>
-              <button
-                onClick={handleDownloadBackup}
-                className="p-2 rounded-xl bg-white shadow-soft border-soft text-gray-600 hover:text-indigo-600 hover:bg-indigo-50 transition-all"
-                title="Baixar Backup (.zip)"
-              >
-                <Download size={20} />
-              </button>
-              <label className="cursor-pointer p-2 rounded-xl bg-white shadow-soft border-soft text-gray-600 hover:text-emerald-600 hover:bg-emerald-50 transition-all" title="Restaurar Backup (.zip)">
-                <Upload size={20} />
-                <input
-                  type="file"
-                  accept=".zip"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) {
-                      setPendingRestoreFile(file);
-                      setIsRestoreConfirmOpen(true);
-                    }
-                    e.target.value = '';
-                  }}
-                />
-              </label>
+            {/* Quick Filters Row */}
+            <div className="flex flex-wrap items-center justify-center gap-1.5 px-3 py-1 bg-white/70 backdrop-blur-xs rounded-full border border-gray-200/70 shadow-xs">
+              <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider pl-1 pr-1.5">Filtros Rápidos:</span>
+              {quickFilterButtons.map((qf) => {
+                const isActive = activeQuickFilter === qf.id;
+                return (
+                  <button
+                    key={qf.id}
+                    onClick={qf.action}
+                    className={cn(
+                      "px-3 py-1 text-xs rounded-full font-medium transition-all duration-150 cursor-pointer select-none",
+                      isActive
+                        ? "bg-indigo-600 text-white shadow-xs font-semibold scale-105"
+                        : "text-gray-600 hover:text-indigo-600 hover:bg-white/90"
+                    )}
+                  >
+                    {qf.label}
+                  </button>
+                );
+              })}
             </div>
           </header>
 
@@ -2085,6 +2157,16 @@ CSV com colunas:
               ))}
             </select>
           </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Observação / Nota</label>
+            <input 
+              type="text" 
+              value={newDespesa.observacao}
+              onChange={e => setNewDespesa(prev => ({ ...prev, observacao: e.target.value }))}
+              placeholder="Ex: Compra parcelada, detalhes adicionais..."
+              className="mt-1 w-full rounded-xl border-gray-200 bg-gray-50 p-3 outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
           <button type="submit" className="w-full rounded-xl bg-rose-600 py-3 text-white font-bold shadow-soft hover:bg-rose-700 hover:shadow-lg hover:scale-[1.02] transition-all active:scale-[0.98]">
             Salvar
           </button>
@@ -2396,16 +2478,15 @@ CSV com colunas:
               </div>
             </div>
 
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-              <input 
-                type="text" 
-                placeholder="Pesquisar movimentações..."
-                value={personSearchTerm}
-                onChange={(e) => setPersonSearchTerm(e.target.value)}
-                className="w-full rounded-xl border-gray-200 bg-gray-50 py-3 pl-10 pr-4 outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
+            <SearchHistoryFilter
+              searchTerm={personSearchTerm}
+              onSearchChange={setPersonSearchTerm}
+              resultCount={selectedPersonDetails.movements.length}
+              totalCount={selectedPersonDetails.totalCount}
+              suggestedCategories={selectedPersonDetails.categories}
+              storageKey="financas_person_search_history"
+              placeholder="Pesquisar movimentações por descrição, valor, categoria, destino..."
+            />
 
             <div className="rounded-xl border border-gray-100 overflow-hidden flex-1">
               <div className="max-h-[60vh] overflow-y-auto custom-scrollbar">
@@ -2417,6 +2498,7 @@ CSV com colunas:
                       <th className="px-4 py-3 font-semibold">Descrição</th>
                       <th className="px-4 py-3 font-semibold">Categoria</th>
                       <th className="px-4 py-3 font-semibold">Destino</th>
+                      <th className="px-4 py-3 font-semibold">Observação</th>
                       <th className="px-4 py-3 font-semibold">Valor</th>
                       <th className="px-4 py-3 font-semibold">Tipo</th>
                     </tr>
@@ -2473,6 +2555,65 @@ CSV com colunas:
                                 (pessoas.find(p => p.id === Number(m.destino))?.nome || m.destino || '-')
                               ) : '-'}
                             </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            {m.tipo === 'Saída' ? (
+                              editingRecordNote?.id === m.id ? (
+                                <div className="flex items-center gap-1 min-w-[170px]">
+                                  <input 
+                                    type="text"
+                                    autoFocus
+                                    value={editingRecordNote.note}
+                                    onChange={e => setEditingRecordNote({ ...editingRecordNote, note: e.target.value })}
+                                    onKeyDown={e => {
+                                      if (e.key === 'Enter') handleUpdateNote(m.id, editingRecordNote.note);
+                                      if (e.key === 'Escape') setEditingRecordNote(null);
+                                    }}
+                                    placeholder="Nota/Observação..."
+                                    className="w-full rounded-lg border-gray-200 bg-gray-50 p-1 text-xs outline-none focus:ring-2 focus:ring-indigo-500"
+                                  />
+                                  <button 
+                                    onClick={() => handleUpdateNote(m.id, editingRecordNote.note)} 
+                                    className="p-1 text-emerald-600 hover:bg-emerald-50 rounded shrink-0"
+                                    title="Salvar Observação"
+                                  >
+                                    <Check size={14} />
+                                  </button>
+                                  <button 
+                                    onClick={() => setEditingRecordNote(null)} 
+                                    className="p-1 text-rose-600 hover:bg-rose-50 rounded shrink-0"
+                                    title="Cancelar"
+                                  >
+                                    <X size={14} />
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-1.5 group/note min-w-[120px] max-w-[220px]">
+                                  {m.observacao ? (
+                                    <span className="text-xs text-gray-700 bg-gray-50 px-2 py-0.5 rounded-md border border-gray-200/70 truncate" title={m.observacao}>
+                                      {m.observacao}
+                                    </span>
+                                  ) : (
+                                    <span className="text-xs text-gray-300 italic group-hover/note:hidden">-</span>
+                                  )}
+                                  <button
+                                    onClick={() => setEditingRecordNote({ id: m.id, note: m.observacao || '' })}
+                                    className={cn(
+                                      "p-1 text-gray-400 hover:text-indigo-600 rounded transition-all",
+                                      m.observacao 
+                                        ? "opacity-0 group-hover/note:opacity-100" 
+                                        : "opacity-0 group-hover/note:opacity-100 text-indigo-600 hover:bg-indigo-50 flex items-center gap-0.5"
+                                    )}
+                                    title={m.observacao ? "Editar Observação" : "Adicionar Observação"}
+                                  >
+                                    <Pencil size={12} />
+                                    {!m.observacao && <span className="text-[10px] font-medium">+ Nota</span>}
+                                  </button>
+                                </div>
+                              )
+                            ) : (
+                              <span className="text-xs text-gray-400">-</span>
+                            )}
                           </td>
                           <td className={cn(
                             "px-4 py-3 font-medium whitespace-nowrap",
@@ -2531,7 +2672,7 @@ CSV com colunas:
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={4} className="px-4 py-8 text-center text-gray-500 italic">
+                        <td colSpan={8} className="px-4 py-8 text-center text-gray-500 italic">
                           Nenhuma movimentação este mês.
                         </td>
                       </tr>

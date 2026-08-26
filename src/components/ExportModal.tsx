@@ -28,6 +28,7 @@ const DEFAULT_COLUMNS: ExportColumn[] = [
   { id: 'description', label: 'Descrição' },
   { id: 'category', label: 'Categoria' },
   { id: 'destino', label: 'Destino' },
+  { id: 'observacao', label: 'Observação' },
   { id: 'value', label: 'Valor' },
   { id: 'type', label: 'Tipo' },
 ];

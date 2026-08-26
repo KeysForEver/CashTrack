@@ -2,180 +2,144 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import fs from "fs";
-import Database from "better-sqlite3";
+import { fileURLToPath } from "url";
+import { Firestore } from "@google-cloud/firestore";
 import AdmZip from "adm-zip";
 import multer from "multer";
 
+const resolvedDir = typeof import.meta !== "undefined" && import.meta.url
+  ? path.dirname(fileURLToPath(import.meta.url))
+  : (typeof __dirname !== "undefined" ? __dirname : process.cwd());
+
 const upload = multer({ dest: "uploads/" });
+
+// Robust search for firebase-applet-config.json
+function findFirebaseConfigPath(dir: string): string {
+  const pathsToTry = [
+    path.join(dir, "firebase-applet-config.json"),
+    path.join(dir, "..", "firebase-applet-config.json"),
+    path.join(process.cwd(), "firebase-applet-config.json")
+  ];
+  for (const p of pathsToTry) {
+    if (fs.existsSync(p)) {
+      return p;
+    }
+  }
+  return path.join(dir, "firebase-applet-config.json");
+}
+
+// Read Firebase Config
+const firebaseConfigPath = findFirebaseConfigPath(resolvedDir);
+const firebaseConfig = JSON.parse(fs.readFileSync(firebaseConfigPath, "utf8"));
+
+// Initialize Firebase Cloud Firestore
+const db = new Firestore({
+  projectId: firebaseConfig.projectId,
+  databaseId: firebaseConfig.firestoreDatabaseId || "(default)"
+});
+
+// Counter helper
+async function getNextId(collectionName: string): Promise<number> {
+  const counterRef = db.collection("metadata").doc("counters");
+  return db.runTransaction(async (transaction) => {
+    const counterDoc = await transaction.get(counterRef);
+    let currentId = 0;
+    if (counterDoc.exists) {
+      currentId = counterDoc.get(collectionName) || 0;
+    }
+    const nextId = currentId + 1;
+    transaction.set(counterRef, { [collectionName]: nextId }, { merge: true });
+    return nextId;
+  });
+}
+
+// Helper to update counters to a specific maximum ID
+async function updateCounterToMax(collectionName: string, maxId: number) {
+  const counterRef = db.collection("metadata").doc("counters");
+  await db.runTransaction(async (transaction) => {
+    const counterDoc = await transaction.get(counterRef);
+    let currentId = 0;
+    if (counterDoc.exists) {
+      currentId = counterDoc.get(collectionName) || 0;
+    }
+    if (maxId > currentId) {
+      transaction.set(counterRef, { [collectionName]: maxId }, { merge: true });
+    }
+  });
+}
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  console.log(`Iniciando servidor conectado ao Firestore (${firebaseConfig.projectId})...`);
+
   app.use(express.json());
-
-  const DB_PATH = "./database.sqlite";
-  let db = new Database(DB_PATH);
-
-  const initDb = (database: Database.Database) => {
-    database.exec(`
-      CREATE TABLE IF NOT EXISTS pessoas (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        nome TEXT NOT NULL,
-        cor TEXT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS categorias (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        nome TEXT NOT NULL UNIQUE
-      );
-
-      CREATE TABLE IF NOT EXISTS despesas (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        data_compra TEXT NOT NULL,
-        data_pagamento TEXT NOT NULL,
-        valor REAL NOT NULL,
-        descricao TEXT DEFAULT '',
-        origem_id INTEGER NOT NULL,
-        destino TEXT NOT NULL,
-        categoria_id INTEGER NOT NULL,
-        FOREIGN KEY(origem_id) REFERENCES pessoas(id),
-        FOREIGN KEY(categoria_id) REFERENCES categorias(id)
-      );
-
-      CREATE TABLE IF NOT EXISTS salarios (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        data_pagamento TEXT NOT NULL,
-        valor REAL NOT NULL,
-        descricao TEXT DEFAULT '',
-        recebedor_id INTEGER NOT NULL,
-        FOREIGN KEY(recebedor_id) REFERENCES pessoas(id)
-      );
-
-      CREATE TABLE IF NOT EXISTS logs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        timestamp TEXT NOT NULL,
-        descricao TEXT NOT NULL,
-        valor_antigo REAL,
-        valor_novo REAL,
-        tipo TEXT NOT NULL,
-        registro_id INTEGER NOT NULL,
-        pessoa_id INTEGER,
-        data_registro TEXT,
-        destino TEXT,
-        categoria_id INTEGER
-      );
-    `);
-
-    // Ensure columns exist for existing databases
-    try { database.exec("ALTER TABLE despesas ADD COLUMN data_compra TEXT"); } catch (e) {}
-    try { database.exec("ALTER TABLE despesas ADD COLUMN data_pagamento TEXT"); } catch (e) {}
-    try { database.exec("ALTER TABLE salarios ADD COLUMN data_pagamento TEXT"); } catch (e) {}
-    
-    // Migration for old 'data' column
-    try {
-      database.exec(`
-        UPDATE despesas SET data_compra = data, data_pagamento = data WHERE data_compra IS NULL;
-        UPDATE salarios SET data_pagamento = data WHERE data_pagamento IS NULL;
-      `);
-    } catch (e) {}
-
-    try { database.exec("ALTER TABLE despesas ADD COLUMN descricao TEXT DEFAULT ''"); } catch (e) {}
-    try { database.exec("ALTER TABLE salarios ADD COLUMN descricao TEXT DEFAULT ''"); } catch (e) {}
-    try { database.exec("ALTER TABLE logs ADD COLUMN data_registro TEXT"); } catch (e) {}
-    try { database.exec("ALTER TABLE logs ADD COLUMN destino TEXT"); } catch (e) {}
-    try { database.exec("ALTER TABLE logs ADD COLUMN categoria_id INTEGER"); } catch (e) {}
-  };
-
-  // Normalize dates in despesas and salarios to YYYY-MM-DD
-    const normalizeDates = (database: Database.Database) => {
-      const tables = [
-        { name: 'despesas', cols: ['data_compra', 'data_pagamento'] },
-        { name: 'salarios', cols: ['data_pagamento'] }
-      ];
-      
-      for (const table of tables) {
-        for (const col of table.cols) {
-          const records = database.prepare(`SELECT id, ${col} FROM ${table.name} WHERE ${col} IS NOT NULL`).all();
-          for (const r of records as any[]) {
-            const val = r[col];
-            if (val && val.includes('/')) {
-              const parts = val.split('/');
-              if (parts.length === 3) {
-                const [d, m, y] = parts;
-                const normalized = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
-                database.prepare(`UPDATE ${table.name} SET ${col} = ? WHERE id = ?`).run(normalized, r.id);
-              }
-            }
-          }
-        }
-      }
-    };
-
-  const seedData = (database: Database.Database) => {
-    const pessoasCount = database.prepare("SELECT COUNT(*) as count FROM pessoas").get().count;
-    if (pessoasCount === 0) {
-      console.log("Seeding example data...");
-      
-      // Insert Pessoas
-      const p1 = database.prepare("INSERT INTO pessoas (nome, cor) VALUES (?, ?)").run("Wallace", "#4f46e5");
-      const p2 = database.prepare("INSERT INTO pessoas (nome, cor) VALUES (?, ?)").run("Janis", "#ec4899");
-      
-      // Insert Categorias
-      const c1 = database.prepare("INSERT INTO categorias (nome) VALUES (?)").run("Alimentação");
-      const c2 = database.prepare("INSERT INTO categorias (nome) VALUES (?)").run("Lazer");
-      const c3 = database.prepare("INSERT INTO categorias (nome) VALUES (?)").run("Transporte");
-      const c4 = database.prepare("INSERT INTO categorias (nome) VALUES (?)").run("Aluguel");
-      
-      const today = new Date().toISOString().split('T')[0];
-      const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
-      
-      // Insert Salarios (Entradas)
-      database.prepare("INSERT INTO salarios (data_pagamento, valor, descricao, recebedor_id) VALUES (?, ?, ?, ?)").run(yesterday, 5000, "Salário Mensal", p1.lastInsertRowid);
-      database.prepare("INSERT INTO salarios (data_pagamento, valor, descricao, recebedor_id) VALUES (?, ?, ?, ?)").run(yesterday, 4500, "Salário Mensal", p2.lastInsertRowid);
-      
-      // Insert Despesas (Saídas)
-      database.prepare("INSERT INTO despesas (data_compra, data_pagamento, valor, descricao, origem_id, destino, categoria_id) VALUES (?, ?, ?, ?, ?, ?, ?)").run(today, today, 150, "Jantar", p1.lastInsertRowid, "Dividir", c1.lastInsertRowid);
-      database.prepare("INSERT INTO despesas (data_compra, data_pagamento, valor, descricao, origem_id, destino, categoria_id) VALUES (?, ?, ?, ?, ?, ?, ?)").run(today, today, 80, "Cinema", p2.lastInsertRowid, "Dividir", c2.lastInsertRowid);
-      database.prepare("INSERT INTO despesas (data_compra, data_pagamento, valor, descricao, origem_id, destino, categoria_id) VALUES (?, ?, ?, ?, ?, ?, ?)").run(yesterday, yesterday, 2000, "Aluguel Apartamento", p1.lastInsertRowid, "Dividir", c4.lastInsertRowid);
-      database.prepare("INSERT INTO despesas (data_compra, data_pagamento, valor, descricao, origem_id, destino, categoria_id) VALUES (?, ?, ?, ?, ?, ?, ?)").run(yesterday, yesterday, 50, "Uber", p2.lastInsertRowid, p1.lastInsertRowid.toString(), c3.lastInsertRowid);
-      database.prepare("INSERT INTO despesas (data_compra, data_pagamento, valor, descricao, origem_id, destino, categoria_id) VALUES (?, ?, ?, ?, ?, ?, ?)").run(yesterday, yesterday, 120, "Supermercado", p1.lastInsertRowid, "Dividir", c1.lastInsertRowid);
-      database.prepare("INSERT INTO despesas (data_compra, data_pagamento, valor, descricao, origem_id, destino, categoria_id) VALUES (?, ?, ?, ?, ?, ?, ?)").run(today, today, 45, "Farmácia", p2.lastInsertRowid, "Dividir", c1.lastInsertRowid);
-      database.prepare("INSERT INTO despesas (data_compra, data_pagamento, valor, descricao, origem_id, destino, categoria_id) VALUES (?, ?, ?, ?, ?, ?, ?)").run(today, today, 200, "Presente", p1.lastInsertRowid, p2.lastInsertRowid.toString(), c2.lastInsertRowid);
-    }
-  };
-
-  initDb(db);
-  normalizeDates(db);
-  seedData(db);
 
   const apiRouter = express.Router();
 
-  // Middleware for all API routes
+  // Middleware for all API routes (No-cache headers)
   apiRouter.use((req, res, next) => {
-    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-    res.setHeader('Pragma', 'no-cache');
-    res.setHeader('Expires', '0');
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
     next();
   });
 
-  // Backup endpoint
-  apiRouter.get("/backup", (req, res) => {
+  // Helper: batch delete a collection
+  async function deleteCollection(collectionName: string) {
+    const collectionRef = db.collection(collectionName);
+    const snapshot = await collectionRef.get();
+    const batch = db.batch();
+    snapshot.docs.forEach((doc) => {
+      batch.delete(doc.ref);
+    });
+    await batch.commit();
+  }
+
+  // Status Endpoint
+  apiRouter.get("/status", (req, res) => {
+    res.json({
+      database: "firestore",
+      databaseId: firebaseConfig.firestoreDatabaseId || "(default)",
+      projectId: firebaseConfig.projectId
+    });
+  });
+
+  // Backup Endpoint
+  apiRouter.get("/backup", async (req, res) => {
     try {
+      const [pessoasSnap, categoriasSnap, despesasSnap, salariosSnap, logsSnap] = await Promise.all([
+        db.collection("pessoas").get(),
+        db.collection("categorias").get(),
+        db.collection("despesas").get(),
+        db.collection("salarios").get(),
+        db.collection("logs").get()
+      ]);
+
+      const backupData = {
+        pessoas: pessoasSnap.docs.map(d => d.data()),
+        categorias: categoriasSnap.docs.map(d => d.data()),
+        despesas: despesasSnap.docs.map(d => d.data()),
+        salarios: salariosSnap.docs.map(d => d.data()),
+        logs: logsSnap.docs.map(d => d.data())
+      };
+
       const zip = new AdmZip();
-      zip.addLocalFile(DB_PATH);
+      zip.addFile("backup.json", Buffer.from(JSON.stringify(backupData, null, 2), "utf8"));
       const buffer = zip.toBuffer();
-      
+
       res.set("Content-Type", "application/zip");
-      res.set("Content-Disposition", `attachment; filename=cashtrack_backup_${new Date().toISOString().split('T')[0]}.zip`);
+      res.set("Content-Disposition", `attachment; filename=cashtrack_backup_${new Date().toISOString().split("T")[0]}.zip`);
       res.send(buffer);
     } catch (e) {
+      console.error(e);
       res.status(500).json({ error: "Erro ao gerar backup" });
     }
   });
 
-  // Restore endpoint
-  apiRouter.post("/restore", upload.single("backup"), (req, res) => {
+  // Restore Endpoint
+  apiRouter.post("/restore", upload.single("backup"), async (req, res) => {
     if (!req.file) {
       return res.status(400).json({ error: "Nenhum arquivo enviado" });
     }
@@ -184,21 +148,126 @@ async function startServer() {
       const filePath = req.file.path;
       const zip = new AdmZip(filePath);
       const zipEntries = zip.getEntries();
-      
-      const dbEntry = zipEntries.find(entry => entry.entryName === "database.sqlite");
-      
-      if (!dbEntry) {
+
+      const jsonEntry = zipEntries.find(entry => entry.entryName === "backup.json");
+
+      if (!jsonEntry) {
         fs.unlinkSync(filePath);
-        return res.status(400).json({ error: "Arquivo de backup inválido (database.sqlite não encontrado)" });
+        return res.status(400).json({ error: "Arquivo de backup inválido (backup.json não encontrado)" });
       }
 
-      db.close();
-      zip.extractEntryTo(dbEntry, ".", false, true);
-      db = new Database(DB_PATH);
-      initDb(db);
-      normalizeDates(db);
-      fs.unlinkSync(filePath);
+      const backupData = JSON.parse(jsonEntry.getData().toString("utf8"));
 
+      // Delete existing data
+      await Promise.all([
+        deleteCollection("pessoas"),
+        deleteCollection("categorias"),
+        deleteCollection("despesas"),
+        deleteCollection("salarios"),
+        deleteCollection("logs")
+      ]);
+
+      let maxPessoaId = 0;
+      let maxCategoriaId = 0;
+      let maxDespesaId = 0;
+      let maxSalarioId = 0;
+      let maxLogId = 0;
+
+      // Restore Firestore
+      if (backupData.pessoas && Array.isArray(backupData.pessoas)) {
+        const batch = db.batch();
+        backupData.pessoas.forEach((p: any) => {
+          const idNum = Number(p.id);
+          if (idNum > maxPessoaId) maxPessoaId = idNum;
+          batch.set(db.collection("pessoas").doc(p.id.toString()), {
+            id: idNum,
+            nome: p.nome,
+            cor: p.cor
+          });
+        });
+        await batch.commit();
+      }
+
+      if (backupData.categorias && Array.isArray(backupData.categorias)) {
+        const batch = db.batch();
+        backupData.categorias.forEach((c: any) => {
+          const idNum = Number(c.id);
+          if (idNum > maxCategoriaId) maxCategoriaId = idNum;
+          batch.set(db.collection("categorias").doc(c.id.toString()), {
+            id: idNum,
+            nome: c.nome
+          });
+        });
+        await batch.commit();
+      }
+
+      if (backupData.despesas && Array.isArray(backupData.despesas)) {
+        const batch = db.batch();
+        backupData.despesas.forEach((d: any) => {
+          const idNum = Number(d.id);
+          if (idNum > maxDespesaId) maxDespesaId = idNum;
+          batch.set(db.collection("despesas").doc(d.id.toString()), {
+            id: idNum,
+            data_compra: d.data_compra,
+            data_pagamento: d.data_pagamento,
+            valor: Number(d.valor),
+            descricao: d.descricao || "",
+            origem_id: Number(d.origem_id),
+            destino: d.destino,
+            categoria_id: Number(d.categoria_id)
+          });
+        });
+        await batch.commit();
+      }
+
+      if (backupData.salarios && Array.isArray(backupData.salarios)) {
+        const batch = db.batch();
+        backupData.salarios.forEach((s: any) => {
+          const idNum = Number(s.id);
+          if (idNum > maxSalarioId) maxSalarioId = idNum;
+          batch.set(db.collection("salarios").doc(s.id.toString()), {
+            id: idNum,
+            data_pagamento: s.data_pagamento,
+            valor: Number(s.valor),
+            descricao: s.descricao || "",
+            recebedor_id: Number(s.recebedor_id)
+          });
+        });
+        await batch.commit();
+      }
+
+      if (backupData.logs && Array.isArray(backupData.logs)) {
+        const batch = db.batch();
+        backupData.logs.forEach((l: any) => {
+          const idNum = Number(l.id);
+          if (idNum > maxLogId) maxLogId = idNum;
+          batch.set(db.collection("logs").doc(l.id.toString()), {
+            id: idNum,
+            timestamp: l.timestamp,
+            descricao: l.descricao,
+            valor_antigo: l.valor_antigo !== undefined && l.valor_antigo !== null ? Number(l.valor_antigo) : null,
+            valor_novo: l.valor_novo !== undefined && l.valor_novo !== null ? Number(l.valor_novo) : null,
+            tipo: l.tipo,
+            registro_id: l.registro_id,
+            pessoa_id: l.pessoa_id !== undefined && l.pessoa_id !== null ? Number(l.pessoa_id) : null,
+            data_registro: l.data_registro || null,
+            destino: l.destino || null,
+            categoria_id: l.categoria_id !== undefined && l.categoria_id !== null ? Number(l.categoria_id) : null
+          });
+        });
+        await batch.commit();
+      }
+
+      // Set counters in Firestore
+      await db.collection("metadata").doc("counters").set({
+        pessoas: maxPessoaId,
+        categorias: maxCategoriaId,
+        despesas: maxDespesaId,
+        salarios: maxSalarioId,
+        logs: maxLogId
+      });
+
+      fs.unlinkSync(filePath);
       res.json({ success: true });
     } catch (e) {
       console.error(e);
@@ -206,17 +275,25 @@ async function startServer() {
     }
   });
 
-  // Reset endpoint
-  apiRouter.post("/reset", (req, res) => {
+  // Reset Endpoint
+  apiRouter.post("/reset", async (req, res) => {
     try {
-      db.exec(`
-        DELETE FROM despesas;
-        DELETE FROM salarios;
-        DELETE FROM pessoas;
-        DELETE FROM categorias;
-        DELETE FROM logs;
-        DELETE FROM sqlite_sequence WHERE name IN ('despesas', 'salarios', 'pessoas', 'categorias', 'logs');
-      `);
+      await Promise.all([
+        deleteCollection("pessoas"),
+        deleteCollection("categorias"),
+        deleteCollection("despesas"),
+        deleteCollection("salarios"),
+        deleteCollection("logs")
+      ]);
+
+      await db.collection("metadata").doc("counters").set({
+        pessoas: 0,
+        categorias: 0,
+        despesas: 0,
+        salarios: 0,
+        logs: 0
+      });
+
       res.json({ success: true });
     } catch (e) {
       console.error(e);
@@ -224,290 +301,597 @@ async function startServer() {
     }
   });
 
-  apiRouter.get("/pessoas", (req, res) => {
-    const data = db.prepare("SELECT * FROM pessoas").all();
-    res.json(data);
-  });
-
-  apiRouter.post("/pessoas", (req, res) => {
-    const { nome, cor } = req.body;
-    const result = db.prepare("INSERT INTO pessoas (nome, cor) VALUES (?, ?)").run(nome, cor);
-    
-    db.prepare(
-      "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, pessoa_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
-    ).run(new Date().toISOString(), `Nova Pessoa: ${nome}`, 0, 0, 'Pessoa', result.lastInsertRowid, result.lastInsertRowid);
-
-    res.json({ id: result.lastInsertRowid, nome, cor });
-  });
-
-  apiRouter.get("/categorias", (req, res) => {
-    const data = db.prepare("SELECT * FROM categorias").all();
-    res.json(data);
-  });
-
-  apiRouter.post("/categorias", (req, res) => {
-    const { nome } = req.body;
+  // Pessoas Endpoints
+  apiRouter.get("/pessoas", async (req, res) => {
     try {
-      const result = db.prepare("INSERT INTO categorias (nome) VALUES (?)").run(nome);
-      
-      db.prepare(
-        "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, categoria_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
-      ).run(new Date().toISOString(), `Nova Categoria: ${nome}`, 0, 0, 'Categoria', result.lastInsertRowid, result.lastInsertRowid);
-
-      res.json({ id: result.lastInsertRowid, nome });
+      const snap = await db.collection("pessoas").get();
+      const list = snap.docs.map(doc => doc.data());
+      res.json(list);
     } catch (e) {
-      // If category exists, return the existing one instead of error
-      const existing = db.prepare("SELECT * FROM categorias WHERE nome = ?").get(nome) as any;
-      if (existing) {
-        return res.json(existing);
-      }
-      res.status(400).json({ error: "Erro ao criar categoria" });
+      console.error(e);
+      res.status(500).json({ error: "Erro ao buscar pessoas" });
     }
   });
 
-  apiRouter.put("/categorias/:id", (req, res) => {
-    const { id } = req.params;
-    const { nome } = req.body;
+  apiRouter.post("/pessoas", async (req, res) => {
     try {
-      const old = db.prepare("SELECT * FROM categorias WHERE id = ?").get(id) as any;
-      db.prepare("UPDATE categorias SET nome = ? WHERE id = ?").run(nome, id);
-      
-      db.prepare(
-        "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, categoria_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
-      ).run(new Date().toISOString(), `Categoria Alterada: ${old.nome} -> ${nome}`, 0, 0, 'Categoria', id, id);
+      const { nome, cor } = req.body;
+      if (!nome || !cor) {
+        return res.status(400).json({ error: "Dados inválidos." });
+      }
 
-      res.json({ id, nome });
+      const nextId = await getNextId("pessoas");
+
+      await db.collection("pessoas").doc(nextId.toString()).set({
+        id: nextId,
+        nome,
+        cor
+      });
+
+      const nextLogId = await getNextId("logs");
+      const logRecord = {
+        id: nextLogId,
+        timestamp: new Date().toISOString(),
+        descricao: `Nova Pessoa: ${nome}`,
+        valor_antigo: 0,
+        valor_novo: 0,
+        tipo: "Pessoa",
+        registro_id: nextId,
+        pessoa_id: nextId
+      };
+
+      await db.collection("logs").doc(nextLogId.toString()).set(logRecord);
+
+      res.json({ id: nextId, nome, cor });
     } catch (e) {
-      res.status(400).json({ error: "Erro ao atualizar categoria" });
+      console.error(e);
+      res.status(500).json({ error: "Erro ao criar pessoa" });
     }
   });
 
-  apiRouter.delete("/categorias/:id", (req, res) => {
-    const { id } = req.params;
+  apiRouter.delete("/pessoas/:id", async (req, res) => {
     try {
-      const old = db.prepare("SELECT * FROM categorias WHERE id = ?").get(id) as any;
-      
-      const count = db.prepare("SELECT COUNT(*) as count FROM despesas WHERE categoria_id = ?").get(id).count;
-      if (count > 0) {
-        return res.status(400).json({ error: "Não é possível excluir uma categoria que possui despesas vinculadas" });
-      }
+      const { id } = req.params;
+      const idNum = Number(id);
 
-      db.prepare("DELETE FROM categorias WHERE id = ?").run(id);
-      
-      db.prepare(
-        "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, categoria_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
-      ).run(new Date().toISOString(), `Categoria Excluída: ${old.nome}`, 0, 0, 'Categoria', id, id);
+      const despesasSnap = await db.collection("despesas").where("origem_id", "==", idNum).get();
+      const salariosSnap = await db.collection("salarios").where("recebedor_id", "==", idNum).get();
+
+      const batch = db.batch();
+      despesasSnap.docs.forEach((doc) => batch.delete(doc.ref));
+      salariosSnap.docs.forEach((doc) => batch.delete(doc.ref));
+      batch.delete(db.collection("pessoas").doc(id));
+      await batch.commit();
 
       res.json({ success: true });
     } catch (e) {
-      res.status(400).json({ error: "Erro ao excluir categoria" });
+      console.error(e);
+      res.status(500).json({ error: "Erro ao excluir pessoa e seus dados" });
     }
   });
 
-  apiRouter.get("/despesas", (req, res) => {
-    const data = db.prepare(`
-      SELECT d.*, p.nome as origem_nome, c.nome as categoria_nome 
-      FROM despesas d
-      LEFT JOIN pessoas p ON d.origem_id = p.id
-      LEFT JOIN categorias c ON d.categoria_id = c.id
-    `).all();
-    res.json(data);
-  });
-
-  apiRouter.post("/despesas", (req, res) => {
-    const { data_compra, data_pagamento, valor, descricao, origem_id, destino, categoria_id, ignoreDuplicates } = req.body;
-    
-    if (!data_compra || !data_pagamento || isNaN(Number(valor)) || !origem_id || !categoria_id) {
-      return res.status(400).json({ error: "Dados incompletos ou inválidos (valor, origem ou categoria)." });
-    }
-
-    const roundedValor = Math.round(Number(valor) * 100) / 100;
-    
-    if (!ignoreDuplicates) {
-      const existing = db.prepare(`
-        SELECT id FROM despesas 
-        WHERE data_compra = ? AND data_pagamento = ? AND valor = ? AND descricao = ? AND origem_id = ? AND destino = ? AND categoria_id = ?
-      `).get(data_compra, data_pagamento, roundedValor, descricao || '', origem_id, destino, categoria_id);
-
-      if (existing) {
-        return res.status(400).json({ error: "Esta despesa já foi lançada (duplicada)." });
-      }
-    }
-
-    const result = db.prepare(
-      "INSERT INTO despesas (data_compra, data_pagamento, valor, descricao, origem_id, destino, categoria_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
-    ).run(data_compra, data_pagamento, roundedValor, descricao || '', origem_id, destino, categoria_id);
-
-    db.prepare(
-      "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, pessoa_id, data_registro, destino, categoria_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-    ).run(new Date().toISOString(), `Lançamento inicial: Saída S${result.lastInsertRowid} - ${descricao || 'Despesa'}`, 0, roundedValor, 'Despesa', result.lastInsertRowid, origem_id, data_pagamento, destino, categoria_id);
-
-    res.json({ id: result.lastInsertRowid, data_compra, data_pagamento, valor: roundedValor, descricao, origem_id, destino, categoria_id });
-  });
-
-  apiRouter.get("/salarios", (req, res) => {
-    const data = db.prepare(`
-      SELECT s.*, p.nome as recebedor_nome 
-      FROM salarios s
-      LEFT JOIN pessoas p ON s.recebedor_id = p.id
-    `).all();
-    res.json(data);
-  });
-
-  apiRouter.post("/salarios", (req, res) => {
-    const { data_pagamento, valor, descricao, recebedor_id } = req.body;
-    
-    if (!data_pagamento || isNaN(Number(valor)) || !recebedor_id) {
-      return res.status(400).json({ error: "Dados incompletos ou inválidos (valor ou recebedor)." });
-    }
-
-    const roundedValor = Math.round(Number(valor) * 100) / 100;
-
-    const existing = db.prepare(`
-      SELECT id FROM salarios 
-      WHERE data_pagamento = ? AND valor = ? AND descricao = ? AND recebedor_id = ?
-    `).get(data_pagamento, roundedValor, descricao || '', recebedor_id);
-
-    if (existing) {
-      return res.status(400).json({ error: "Este lançamento de entrada já existe (duplicado)." });
-    }
-
-    const result = db.prepare(
-      "INSERT INTO salarios (data_pagamento, valor, descricao, recebedor_id) VALUES (?, ?, ?, ?)"
-    ).run(data_pagamento, roundedValor, descricao || '', recebedor_id);
-
-    db.prepare(
-      "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, pessoa_id, data_registro, destino) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
-    ).run(new Date().toISOString(), `Lançamento inicial: Entrada E${result.lastInsertRowid} - ${descricao || 'Entrada'}`, 0, roundedValor, 'Entrada', result.lastInsertRowid, recebedor_id, data_pagamento, 'Entrada');
-
-    res.json({ id: result.lastInsertRowid, data_pagamento, valor: roundedValor, descricao, recebedor_id });
-  });
-
-  apiRouter.patch("/despesas/:id", (req, res) => {
-    const { id } = req.params;
-    const { valor, categoria_id } = req.body;
-
+  // Categorias Endpoints
+  apiRouter.get("/categorias", async (req, res) => {
     try {
-      const oldRecord = db.prepare("SELECT valor, descricao, origem_id, categoria_id FROM despesas WHERE id = ?").get(id) as any;
+      const snap = await db.collection("categorias").get();
+      const list = snap.docs.map(doc => doc.data());
+      res.json(list);
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Erro ao buscar categorias" });
+    }
+  });
+
+  apiRouter.post("/categorias", async (req, res) => {
+    try {
+      const { nome } = req.body;
+      if (!nome) {
+        return res.status(400).json({ error: "Nome inválido." });
+      }
+
+      // Check for duplicate
+      const existingSnap = await db.collection("categorias").where("nome", "==", nome).limit(1).get();
+      if (!existingSnap.empty) {
+        return res.json(existingSnap.docs[0].data());
+      }
+
+      const nextId = await getNextId("categorias");
+
+      await db.collection("categorias").doc(nextId.toString()).set({
+        id: nextId,
+        nome
+      });
+
+      const nextLogId = await getNextId("logs");
+      const logRecord = {
+        id: nextLogId,
+        timestamp: new Date().toISOString(),
+        descricao: `Nova Categoria: ${nome}`,
+        valor_antigo: 0,
+        valor_novo: 0,
+        tipo: "Categoria",
+        registro_id: nextId,
+        categoria_id: nextId
+      };
+
+      await db.collection("logs").doc(nextLogId.toString()).set(logRecord);
+
+      res.json({ id: nextId, nome });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Erro ao criar categoria" });
+    }
+  });
+
+  apiRouter.put("/categorias/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const idNum = Number(id);
+      const { nome } = req.body;
+      if (!nome) return res.status(400).json({ error: "Nome inválido." });
+
+      const catRef = db.collection("categorias").doc(id);
+      const doc = await catRef.get();
+      if (!doc.exists) {
+        return res.status(404).json({ error: "Categoria não encontrada" });
+      }
+      const oldName = doc.data()?.nome || "";
+      await catRef.update({ nome });
+
+      const nextLogId = await getNextId("logs");
+      const logRecord = {
+        id: nextLogId,
+        timestamp: new Date().toISOString(),
+        descricao: `Categoria Alterada: ${oldName} -> ${nome}`,
+        valor_antigo: 0,
+        valor_novo: 0,
+        tipo: "Categoria",
+        registro_id: idNum,
+        categoria_id: idNum
+      };
+
+      await db.collection("logs").doc(nextLogId.toString()).set(logRecord);
+
+      res.json({ id: idNum, nome });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Erro ao editar categoria" });
+    }
+  });
+
+  apiRouter.delete("/categorias/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const idNum = Number(id);
+
+      const despesasSnap = await db.collection("despesas").where("categoria_id", "==", idNum).limit(1).get();
+      if (!despesasSnap.empty) {
+        return res.status(400).json({ error: "Não é possível excluir uma categoria que possui despesas vinculadas" });
+      }
+
+      const catRef = db.collection("categorias").doc(id);
+      const doc = await catRef.get();
+      if (!doc.exists) return res.status(404).json({ error: "Categoria não encontrada" });
+
+      const oldName = doc.data()?.nome || "";
+      await catRef.delete();
+
+      const nextLogId = await getNextId("logs");
+      const logRecord = {
+        id: nextLogId,
+        timestamp: new Date().toISOString(),
+        descricao: `Categoria Excluída: ${oldName}`,
+        valor_antigo: 0,
+        valor_novo: 0,
+        tipo: "Categoria",
+        registro_id: idNum,
+        categoria_id: idNum
+      };
+
+      await db.collection("logs").doc(nextLogId.toString()).set(logRecord);
+
+      res.json({ success: true });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Erro ao excluir categoria" });
+    }
+  });
+
+  // Despesas Endpoints
+  apiRouter.get("/despesas", async (req, res) => {
+    try {
+      const [despesasSnap, pessoasSnap, categoriasSnap] = await Promise.all([
+        db.collection("despesas").get(),
+        db.collection("pessoas").get(),
+        db.collection("categorias").get()
+      ]);
+      const despesas = despesasSnap.docs.map(doc => doc.data());
+      const pessoasList = pessoasSnap.docs.map(doc => doc.data());
+      const categoriasList = categoriasSnap.docs.map(doc => doc.data());
+
+      const pessoasMap = new Map<any, any>(pessoasList.map(p => [p.id, p]));
+      const categoriasMap = new Map<any, any>(categoriasList.map(c => [c.id, c]));
+
+      const list = despesas.map(d => ({
+        ...d,
+        origem_nome: pessoasMap.get(d.origem_id)?.nome || "-",
+        categoria_nome: categoriasMap.get(d.categoria_id)?.nome || "-"
+      }));
+
+      res.json(list);
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Erro ao buscar despesas" });
+    }
+  });
+
+  apiRouter.post("/despesas", async (req, res) => {
+    try {
+      const { data_compra, data_pagamento, valor, descricao, origem_id, destino, categoria_id, ignoreDuplicates } = req.body;
+      
+      if (!data_compra || !data_pagamento || isNaN(Number(valor)) || !origem_id || !categoria_id) {
+        return res.status(400).json({ error: "Dados incompletos ou inválidos (valor, origem ou categoria)." });
+      }
+
+      const roundedValor = Math.round(Number(valor) * 100) / 100;
+      
+      if (!ignoreDuplicates) {
+        const snap = await db.collection("despesas").where("data_compra", "==", data_compra).get();
+        const existing = snap.docs.find(doc => {
+          const d = doc.data();
+          return d.data_pagamento === data_pagamento &&
+                 d.valor === roundedValor &&
+                 d.descricao === (descricao || "") &&
+                 d.origem_id === Number(origem_id) &&
+                 d.destino === destino &&
+                 d.categoria_id === Number(categoria_id);
+        });
+        if (existing) {
+          return res.status(400).json({ error: "Esta despesa já foi lançada (duplicada)." });
+        }
+      }
+
+      const nextId = await getNextId("despesas");
+      const record = {
+        id: nextId,
+        data_compra,
+        data_pagamento,
+        valor: roundedValor,
+        descricao: descricao || "",
+        origem_id: Number(origem_id),
+        destino,
+        categoria_id: Number(categoria_id)
+      };
+
+      await db.collection("despesas").doc(nextId.toString()).set(record);
+
+      const nextLogId = await getNextId("logs");
+      const logRecord = {
+        id: nextLogId,
+        timestamp: new Date().toISOString(),
+        descricao: `Lançamento inicial: Saída S${nextId} - ${descricao || "Despesa"}`,
+        valor_antigo: 0,
+        valor_novo: roundedValor,
+        tipo: "Despesa",
+        registro_id: nextId,
+        pessoa_id: Number(origem_id),
+        data_registro: data_pagamento,
+        destino,
+        categoria_id: Number(categoria_id)
+      };
+
+      await db.collection("logs").doc(nextLogId.toString()).set(logRecord);
+
+      res.json(record);
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Erro ao criar despesa" });
+    }
+  });
+
+  apiRouter.patch("/despesas/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const idNum = Number(id);
+      const { valor, categoria_id } = req.body;
+
+      let oldRecord: any = null;
+
+      const doc = await db.collection("despesas").doc(id).get();
+      if (doc.exists) {
+        oldRecord = doc.data();
+      }
+
       if (!oldRecord) return res.status(404).json({ error: "Despesa não encontrada" });
+
+      const updates: any = {};
 
       if (valor !== undefined) {
         if (isNaN(Number(valor))) {
           return res.status(400).json({ error: "Valor inválido." });
         }
         const roundedValor = Math.round(Number(valor) * 100) / 100;
-        db.prepare("UPDATE despesas SET valor = ? WHERE id = ?").run(roundedValor, id);
-        
-        db.prepare(
-          "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, pessoa_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
-        ).run(new Date().toISOString(), `Alteração de valor: Saída S${id} - ${oldRecord.descricao}`, oldRecord.valor, roundedValor, 'Despesa', id, oldRecord.origem_id);
+        updates.valor = roundedValor;
+
+        const nextLogId = await getNextId("logs");
+        const logRecord = {
+          id: nextLogId,
+          timestamp: new Date().toISOString(),
+          descricao: `Alteração de valor: Saída S${id} - ${oldRecord.descricao || "Despesa"}`,
+          valor_antigo: oldRecord.valor,
+          valor_novo: roundedValor,
+          tipo: "Despesa",
+          registro_id: idNum,
+          pessoa_id: oldRecord.origem_id
+        };
+
+        await db.collection("logs").doc(nextLogId.toString()).set(logRecord);
       }
 
       if (categoria_id !== undefined) {
-        db.prepare("UPDATE despesas SET categoria_id = ? WHERE id = ?").run(categoria_id, id);
-        
-        const oldCat = db.prepare("SELECT nome FROM categorias WHERE id = ?").get(oldRecord.categoria_id) as any;
-        const newCat = db.prepare("SELECT nome FROM categorias WHERE id = ?").get(categoria_id) as any;
-        
-        db.prepare(
-          "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, pessoa_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
-        ).run(new Date().toISOString(), `Alteração de categoria: Saída S${id} - ${oldRecord.descricao} (${oldCat?.nome || 'Sem Categoria'} -> ${newCat?.nome || 'Sem Categoria'})`, 0, 0, 'Despesa', id, oldRecord.origem_id);
+        const catIdNum = Number(categoria_id);
+        updates.categoria_id = catIdNum;
+
+        let oldCatName = "Sem Categoria";
+        let newCatName = "Sem Categoria";
+
+        const [oldCatSnap, newCatSnap] = await Promise.all([
+          db.collection("categorias").doc(oldRecord.categoria_id.toString()).get(),
+          db.collection("categorias").doc(catIdNum.toString()).get()
+        ]);
+        if (oldCatSnap.exists) oldCatName = oldCatSnap.data()?.nome || "Sem Categoria";
+        if (newCatSnap.exists) newCatName = newCatSnap.data()?.nome || "Sem Categoria";
+
+        const nextLogId = await getNextId("logs");
+        const logRecord = {
+          id: nextLogId,
+          timestamp: new Date().toISOString(),
+          descricao: `Alteração de categoria: Saída S${id} - ${oldRecord.descricao || "Despesa"} (${oldCatName} -> ${newCatName})`,
+          valor_antigo: 0,
+          valor_novo: 0,
+          tipo: "Despesa",
+          registro_id: idNum,
+          pessoa_id: oldRecord.origem_id
+        };
+
+        await db.collection("logs").doc(nextLogId.toString()).set(logRecord);
       }
+
+      await db.collection("despesas").doc(id).update(updates);
 
       res.json({ success: true });
     } catch (e) {
       console.error(e);
-      res.status(500).json({ error: "Erro ao atualizar despesa." });
+      res.status(500).json({ error: "Erro ao atualizar despesa" });
     }
   });
 
-  apiRouter.patch("/salarios/:id", (req, res) => {
-    const { id } = req.params;
-    const { valor } = req.body;
-
-    if (isNaN(Number(valor))) {
-      return res.status(400).json({ error: "Valor inválido." });
-    }
-
-    const roundedValor = Math.round(Number(valor) * 100) / 100;
-
+  apiRouter.delete("/despesas/:id", async (req, res) => {
     try {
-      const oldRecord = db.prepare("SELECT valor, descricao, recebedor_id FROM salarios WHERE id = ?").get(id) as any;
+      const { id } = req.params;
+      const idNum = Number(id);
+
+      let oldRecord: any = null;
+
+      const doc = await db.collection("despesas").doc(id).get();
+      if (doc.exists) {
+        oldRecord = doc.data();
+      }
+
+      if (!oldRecord) return res.status(404).json({ error: "Despesa não encontrada" });
+
+      await db.collection("despesas").doc(id).delete();
+
+      const nextLogId = await getNextId("logs");
+      const logRecord = {
+        id: nextLogId,
+        timestamp: new Date().toISOString(),
+        descricao: `Exclusão: Saída S${id} - ${oldRecord.descricao || "Despesa"}`,
+        valor_antigo: oldRecord.valor,
+        valor_novo: 0,
+        tipo: "Despesa",
+        registro_id: idNum,
+        pessoa_id: oldRecord.origem_id
+      };
+
+      await db.collection("logs").doc(nextLogId.toString()).set(logRecord);
+
+      res.json({ success: true });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Erro ao excluir despesa" });
+    }
+  });
+
+  // Salarios (Entradas) Endpoints
+  apiRouter.get("/salarios", async (req, res) => {
+    try {
+      const [salariosSnap, sheetsSnap] = await Promise.all([
+        db.collection("salarios").get(),
+        db.collection("pessoas").get()
+      ]);
+      const salarios = salariosSnap.docs.map(doc => doc.data());
+      const pessoasList = sheetsSnap.docs.map(doc => doc.data());
+
+      const pessoasMap = new Map<any, any>(pessoasList.map(p => [p.id, p]));
+
+      const list = salarios.map(s => ({
+        ...s,
+        recebedor_nome: pessoasMap.get(s.recebedor_id)?.nome || "-"
+      }));
+
+      res.json(list);
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Erro ao buscar salários" });
+    }
+  });
+
+  apiRouter.post("/salarios", async (req, res) => {
+    try {
+      const { data_pagamento, valor, descricao, recebedor_id } = req.body;
+      
+      if (!data_pagamento || isNaN(Number(valor)) || !recebedor_id) {
+        return res.status(400).json({ error: "Dados incompletos ou inválidos (valor ou recebedor)." });
+      }
+
+      const roundedValor = Math.round(Number(valor) * 100) / 100;
+
+      // Duplicate check
+      const snap = await db.collection("salarios").where("data_pagamento", "==", data_pagamento).get();
+      const existing = snap.docs.find(doc => {
+        const s = doc.data();
+        return s.valor === roundedValor &&
+               s.descricao === (descricao || "") &&
+               s.recebedor_id === Number(recebedor_id);
+      });
+      if (existing) {
+        return res.status(400).json({ error: "Este lançamento de entrada já existe (duplicado)." });
+      }
+
+      const nextId = await getNextId("salarios");
+      const record = {
+        id: nextId,
+        data_pagamento,
+        valor: roundedValor,
+        descricao: descricao || "",
+        recebedor_id: Number(recebedor_id)
+      };
+
+      await db.collection("salarios").doc(nextId.toString()).set(record);
+
+      const nextLogId = await getNextId("logs");
+      const logRecord = {
+        id: nextLogId,
+        timestamp: new Date().toISOString(),
+        descricao: `Lançamento inicial: Entrada E${nextId} - ${descricao || "Entrada"}`,
+        valor_antigo: 0,
+        valor_novo: roundedValor,
+        tipo: "Entrada",
+        registro_id: nextId,
+        pessoa_id: Number(recebedor_id),
+        data_registro: data_pagamento,
+        destino: "Entrada"
+      };
+
+      await db.collection("logs").doc(nextLogId.toString()).set(logRecord);
+
+      res.json(record);
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Erro ao criar salário" });
+    }
+  });
+
+  apiRouter.patch("/salarios/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const idNum = Number(id);
+      const { valor } = req.body;
+
+      if (isNaN(Number(valor))) {
+        return res.status(400).json({ error: "Valor inválido." });
+      }
+
+      const roundedValor = Math.round(Number(valor) * 100) / 100;
+
+      let oldRecord: any = null;
+
+      const doc = await db.collection("salarios").doc(id).get();
+      if (doc.exists) {
+        oldRecord = doc.data();
+      }
+
       if (!oldRecord) return res.status(404).json({ error: "Entrada não encontrada" });
 
-      db.prepare("UPDATE salarios SET valor = ? WHERE id = ?").run(roundedValor, id);
+      await db.collection("salarios").doc(id).update({ valor: roundedValor });
 
-      db.prepare(
-        "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, pessoa_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
-      ).run(new Date().toISOString(), `Alteração de valor: Entrada E${id} - ${oldRecord.descricao}`, oldRecord.valor, roundedValor, 'Entrada', id, oldRecord.recebedor_id);
+      const nextLogId = await getNextId("logs");
+      const logRecord = {
+        id: nextLogId,
+        timestamp: new Date().toISOString(),
+        descricao: `Alteração de valor: Entrada E${id} - ${oldRecord.descricao || "Entrada"}`,
+        valor_antigo: oldRecord.valor,
+        valor_novo: roundedValor,
+        tipo: "Entrada",
+        registro_id: idNum,
+        pessoa_id: oldRecord.recebedor_id
+      };
+
+      await db.collection("logs").doc(nextLogId.toString()).set(logRecord);
 
       res.json({ success: true, valor: roundedValor });
     } catch (e) {
+      console.error(e);
       res.status(500).json({ error: "Erro ao atualizar valor da entrada." });
     }
   });
 
-  apiRouter.delete("/despesas/:id", (req, res) => {
-    const { id } = req.params;
+  apiRouter.delete("/salarios/:id", async (req, res) => {
     try {
-      const oldRecord = db.prepare("SELECT valor, descricao, origem_id FROM despesas WHERE id = ?").get(id) as any;
-      if (!oldRecord) return res.status(404).json({ error: "Despesa não encontrada" });
+      const { id } = req.params;
+      const idNum = Number(id);
 
-      db.prepare("DELETE FROM despesas WHERE id = ?").run(id);
+      let oldRecord: any = null;
 
-      db.prepare(
-        "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, pessoa_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
-      ).run(new Date().toISOString(), `Exclusão: Saída S${id} - ${oldRecord.descricao}`, oldRecord.valor, 0, 'Despesa', id, oldRecord.origem_id);
+      const doc = await db.collection("salarios").doc(id).get();
+      if (doc.exists) {
+        oldRecord = doc.data();
+      }
 
-      res.json({ success: true });
-    } catch (e) {
-      res.status(500).json({ error: "Erro ao excluir despesa." });
-    }
-  });
-
-  apiRouter.delete("/salarios/:id", (req, res) => {
-    const { id } = req.params;
-    try {
-      const oldRecord = db.prepare("SELECT valor, descricao, recebedor_id FROM salarios WHERE id = ?").get(id) as any;
       if (!oldRecord) return res.status(404).json({ error: "Entrada não encontrada" });
 
-      db.prepare("DELETE FROM salarios WHERE id = ?").run(id);
+      await db.collection("salarios").doc(id).delete();
 
-      db.prepare(
-        "INSERT INTO logs (timestamp, descricao, valor_antigo, valor_novo, tipo, registro_id, pessoa_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
-      ).run(new Date().toISOString(), `Exclusão: Entrada E${id} - ${oldRecord.descricao}`, oldRecord.valor, 0, 'Entrada', id, oldRecord.recebedor_id);
+      const nextLogId = await getNextId("logs");
+      const logRecord = {
+        id: nextLogId,
+        timestamp: new Date().toISOString(),
+        descricao: `Exclusão: Entrada E${id} - ${oldRecord.descricao || "Entrada"}`,
+        valor_antigo: oldRecord.valor,
+        valor_novo: 0,
+        tipo: "Entrada",
+        registro_id: idNum,
+        pessoa_id: oldRecord.recebedor_id
+      };
+
+      await db.collection("logs").doc(nextLogId.toString()).set(logRecord);
 
       res.json({ success: true });
     } catch (e) {
-      res.status(500).json({ error: "Erro ao excluir entrada." });
+      console.error(e);
+      res.status(500).json({ error: "Erro ao excluir entrada" });
     }
   });
 
-  apiRouter.get("/logs", (req, res) => {
-    const data = db.prepare(`
-      SELECT l.*, p.nome as pessoa_nome, c.nome as categoria_nome 
-      FROM logs l
-      LEFT JOIN pessoas p ON l.pessoa_id = p.id
-      LEFT JOIN categorias c ON l.categoria_id = c.id
-      ORDER BY l.timestamp DESC
-    `).all();
-    res.json(data);
-  });
-
-  apiRouter.delete("/pessoas/:id", (req, res) => {
-    const { id } = req.params;
-    
-    const deleteTransaction = db.transaction(() => {
-      db.prepare("DELETE FROM despesas WHERE origem_id = ?").run(id);
-      db.prepare("DELETE FROM salarios WHERE recebedor_id = ?").run(id);
-      db.prepare("DELETE FROM pessoas WHERE id = ?").run(id);
-    });
-
+  // Logs Endpoint
+  apiRouter.get("/logs", async (req, res) => {
     try {
-      deleteTransaction();
-      res.json({ success: true });
+      const [logsSnap, pessoasSnap, categoriasSnap] = await Promise.all([
+        db.collection("logs").get(),
+        db.collection("pessoas").get(),
+        db.collection("categorias").get()
+      ]);
+      const logs = logsSnap.docs.map(doc => doc.data());
+      const pessoasList = pessoasSnap.docs.map(doc => doc.data());
+      const categoriasList = categoriasSnap.docs.map(doc => doc.data());
+
+      const pessoasMap = new Map<any, any>(pessoasList.map(p => [p.id, p]));
+      const categoriasMap = new Map<any, any>(categoriasList.map(c => [c.id, c]));
+
+      const list = logs.map(l => ({
+        ...l,
+        pessoa_nome: l.pessoa_id ? (pessoasMap.get(l.pessoa_id)?.nome || "-") : "-",
+        categoria_nome: l.categoria_id ? (categoriasMap.get(l.categoria_id)?.nome || "-") : "-"
+      }));
+
+      // Sort in memory by timestamp descending
+      list.sort((a: any, b: any) => b.timestamp.localeCompare(a.timestamp));
+
+      res.json(list);
     } catch (e) {
-      res.status(500).json({ error: "Erro ao excluir pessoa e seus dados." });
+      console.error(e);
+      res.status(500).json({ error: "Erro ao buscar logs" });
     }
   });
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Filter, Users, DollarSign, CreditCard, Tag, TrendingUp, ChevronDown, ChevronUp, ClipboardCheck, Trash2, Download, Upload, RotateCcw, Layers, Loader2, PieChart as PieChartIcon, BarChart as BarChartIcon, Check, X, Search, Pencil, AlertTriangle, Cloud, Database, ScrollText, ShieldCheck } from 'lucide-react';
+import { Plus, Filter, Users, DollarSign, CreditCard, Tag, TrendingUp, ChevronDown, ChevronUp, ClipboardCheck, Trash2, Download, Upload, RotateCcw, Layers, Loader2, PieChart as PieChartIcon, BarChart as BarChartIcon, Check, X, Search, Pencil, AlertTriangle, Cloud, Database, ScrollText, ShieldCheck, Heart } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
@@ -586,6 +586,42 @@ CSV com colunas:
     return null;
   }, [startDate, endDate, filterMonth, filterYear]);
 
+  const globalDateFilterDescription = useMemo(() => {
+    if (startDate && endDate) {
+      const s = parseISO(startDate);
+      const e = parseISO(endDate);
+      const sFmt = !isNaN(s.getTime()) ? format(s, 'dd/MM/yyyy') : startDate;
+      const eFmt = !isNaN(e.getTime()) ? format(e, 'dd/MM/yyyy') : endDate;
+      return `${sFmt} até ${eFmt}`;
+    }
+    if (startDate) {
+      const s = parseISO(startDate);
+      return `A partir de ${!isNaN(s.getTime()) ? format(s, 'dd/MM/yyyy') : startDate}`;
+    }
+    if (endDate) {
+      const e = parseISO(endDate);
+      return `Até ${!isNaN(e.getTime()) ? format(e, 'dd/MM/yyyy') : endDate}`;
+    }
+    if (filterMonth !== -1 && filterYear !== -1) {
+      const date = new Date(filterYear, filterMonth, 1);
+      const monthName = format(date, 'MMMM', { locale: ptBR });
+      return `${monthName.charAt(0).toUpperCase() + monthName.slice(1)} de ${filterYear}`;
+    }
+    if (filterMonth !== -1) {
+      const date = new Date(2026, filterMonth, 1);
+      const monthName = format(date, 'MMMM', { locale: ptBR });
+      return `${monthName.charAt(0).toUpperCase() + monthName.slice(1)} (Todos os anos)`;
+    }
+    if (filterYear !== -1) {
+      return `Ano ${filterYear}`;
+    }
+    return 'Todo o histórico (sem filtro de data)';
+  }, [startDate, endDate, filterMonth, filterYear]);
+
+  const hasActiveGlobalDateFilter = useMemo(() => {
+    return Boolean(startDate || endDate || filterMonth !== -1 || filterYear !== -1);
+  }, [startDate, endDate, filterMonth, filterYear]);
+
   const quickFilterButtons = [
     { id: 'all', label: 'Tudo', action: handleQuickFilterAll },
     { id: 'last7', label: 'Últimos 7 Dias', action: handleQuickFilterLast7 },
@@ -782,6 +818,12 @@ CSV com colunas:
       categories: Array.from(new Set(pDespesas.map(d => d.categoria_nome).filter(Boolean))) as string[]
     };
   }, [selectedPersonId, pessoas, filteredDespesas, filteredSalarios, personSearchTerm]);
+
+  const totalPersonRecordsCount = useMemo(() => {
+    if (selectedPersonId === null) return 0;
+    return despesas.filter(d => d.origem_id === selectedPersonId).length + 
+           salarios.filter(s => s.recebedor_id === selectedPersonId).length;
+  }, [selectedPersonId, despesas, salarios]);
 
   const barChartData = useMemo(() => {
     const chartDespesas = chartPersonFilter === -1 
@@ -1541,6 +1583,89 @@ CSV com colunas:
   const handleExportData = async (options: ExportOptions) => {
     if (!selectedPersonDetails) return;
 
+    let movementsToExport = selectedPersonDetails.movements;
+
+    if (!options.useDateFilter) {
+      const pAllDespesas = despesas.filter(d => d.origem_id === selectedPersonId);
+      const pAllSalarios = salarios.filter(s => s.recebedor_id === selectedPersonId);
+
+      let allPersonMovements = [
+        ...pAllDespesas.map(d => {
+          const dateObj = parseISO(d.data_pagamento);
+          const isValidDate = !isNaN(dateObj.getTime());
+          return { 
+            ...d, 
+            id: `despesa-${d.id}`,
+            tipo: 'Saída', 
+            displayData: d.data_pagamento,
+            data_compra: d.data_compra || d.data_pagamento,
+            observacao: d.observacao || '',
+            formattedDate: isValidDate ? format(dateObj, 'dd/MM/yyyy') : d.data_pagamento,
+            formattedCompraDate: d.data_compra ? (parseISO(d.data_compra) ? format(parseISO(d.data_compra), 'dd/MM/yyyy') : d.data_compra) : (isValidDate ? format(dateObj, 'dd/MM/yyyy') : d.data_pagamento),
+            monthName: isValidDate ? format(dateObj, 'MMMM', { locale: ptBR }) : '',
+            monthNameShort: isValidDate ? format(dateObj, 'MMM', { locale: ptBR }) : ''
+          };
+        }),
+        ...pAllSalarios.map(s => {
+          const dateObj = parseISO(s.data_pagamento);
+          const isValidDate = !isNaN(dateObj.getTime());
+          return { 
+            ...s, 
+            id: `salario-${s.id}`,
+            tipo: 'Entrada', 
+            displayData: s.data_pagamento,
+            data_compra: s.data_pagamento,
+            observacao: s.observacao || '',
+            formattedDate: isValidDate ? format(dateObj, 'dd/MM/yyyy') : s.data_pagamento,
+            formattedCompraDate: isValidDate ? format(dateObj, 'dd/MM/yyyy') : s.data_pagamento,
+            monthName: isValidDate ? format(dateObj, 'MMMM', { locale: ptBR }) : '',
+            monthNameShort: isValidDate ? format(dateObj, 'MMM', { locale: ptBR }) : ''
+          };
+        })
+      ].sort((a, b) => b.displayData.localeCompare(a.displayData));
+
+      if (personSearchTerm) {
+        const normalize = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        const term = normalize(personSearchTerm).trim();
+        const numericTerm = term.replace(',', '.');
+
+        allPersonMovements = allPersonMovements.filter(m => {
+          const valorStr = m.valor.toString();
+          const valorFixed = m.valor.toFixed(2);
+          const valorFormatted = formatCurrency(m.valor).toLowerCase();
+
+          let destinoName = '-';
+          if (m.tipo === 'Saída') {
+            if (m.destino === 'Dividir' || m.destino === 'Dividido') {
+              destinoName = 'Dividir';
+            } else {
+              const p = pessoas.find(p => p.id === Number(m.destino));
+              destinoName = p ? p.nome : (m.destino || '-');
+            }
+          }
+
+          return normalize(m.descricao).includes(term) ||
+            (m.observacao && normalize(m.observacao).includes(term)) ||
+            (m.categoria_nome && normalize(m.categoria_nome).includes(term)) ||
+            normalize(destinoName).includes(term) ||
+            valorStr.includes(term) ||
+            valorStr.includes(numericTerm) ||
+            valorFixed.includes(term) ||
+            valorFixed.includes(numericTerm) ||
+            valorFixed.replace('.', ',').includes(term) ||
+            valorFormatted.includes(term) ||
+            m.formattedDate.includes(term) ||
+            (m.data_compra && m.data_compra.includes(term)) ||
+            (m.formattedCompraDate && m.formattedCompraDate.includes(term)) ||
+            normalize(m.tipo).includes(term) ||
+            normalize(m.monthName).includes(term) ||
+            normalize(m.monthNameShort).includes(term);
+        });
+      }
+
+      movementsToExport = allPersonMovements;
+    }
+
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Resumo');
 
@@ -1555,7 +1680,7 @@ CSV com colunas:
     if (options.columns.includes('type')) columns.push({ header: 'Tipo', key: 'type', width: 15 });
     worksheet.columns = columns;
 
-    selectedPersonDetails.movements.forEach((m: any) => {
+    movementsToExport.forEach((m: any) => {
       const row: any = {};
       if (options.columns.includes('date')) row['date'] = m.formattedDate;
       if (options.columns.includes('date_compra')) row['date_compra'] = m.formattedCompraDate;
@@ -1649,11 +1774,10 @@ CSV com colunas:
       {/* Sidebar */}
       <aside className="w-72 bg-white border-r border-gray-200 fixed h-full overflow-y-auto z-30 shadow-sm custom-scrollbar">
         <div className="p-6">
-          <div className="flex items-center gap-3 mb-10">
-            <div className="bg-indigo-600 p-2 rounded-xl text-white">
-              <DollarSign size={24} />
-            </div>
-            <h1 className="text-xl font-bold text-gray-800 tracking-tight">WithLove4Janis</h1>
+          <div className="flex items-center justify-center gap-2 mb-10 px-3 py-2.5 rounded-2xl bg-rose-50/60 border border-rose-100/70 shadow-2xs">
+            <Heart size={18} className="text-rose-500 fill-rose-500 shrink-0" />
+            <h1 className="text-lg font-bold text-gray-800 tracking-tight text-center">WithLove4Janis</h1>
+            <Heart size={18} className="text-rose-500 fill-rose-500 shrink-0" />
           </div>
           
           <nav className="space-y-1">
@@ -2707,6 +2831,10 @@ CSV com colunas:
         onClose={() => setIsExportModalOpen(false)}
         onExport={handleExportData}
         defaultFilenamePrefix={`Resumo_${(selectedPersonDetails?.person.nome || '').replace(/\s+/g, '_')}`}
+        dateFilterDescription={globalDateFilterDescription}
+        hasActiveDateFilter={hasActiveGlobalDateFilter}
+        filteredCount={selectedPersonDetails?.movements.length || 0}
+        totalCount={totalPersonRecordsCount}
       />
 
       <Modal 
